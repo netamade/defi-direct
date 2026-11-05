@@ -1,0 +1,737 @@
+/* 直コン練習サイト テーマ（CSSカスタムプロパティで管理する）
+   方針: 堅い業務システム風にしない。明るく前向きな色づかいと、読みやすい余白。
+   外部フォントは読み込まない（設計書 0.5.3：外部通信は自サイトの静的資産のみ）。 */
+
+:root {
+  --color-bg: #f6f8ff;
+  --color-surface: #ffffff;
+  --color-ink: #22304a;
+  --color-ink-soft: #5a6a86;
+  --color-accent: #3b6fe0;
+  --color-accent-soft: #e3ecff;
+  --color-success: #1f9d66;
+  --color-success-soft: #e2f6ec;
+  --color-revert: #e07f2e;
+  --color-revert-soft: #fdeeda;
+  --color-banner-bg: #fff4d6;
+  --color-banner-ink: #6b5410;
+  --color-border: #d7e0f2;
+  --radius: 12px;
+  --space: 16px;
+  --font-body: "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Noto Sans JP",
+    "Yu Gothic UI", "Yu Gothic", Meiryo, sans-serif;
+  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+  line-height: 1.7;
+}
+
+/* 安全バナー（常時表示・閉じられない） */
+.safety-banner {
+  background: var(--color-banner-bg);
+  color: var(--color-banner-ink);
+  padding: 10px var(--space);
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.site-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 24px;
+  padding: 12px var(--space);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.site-logo {
+  color: var(--color-ink);
+  font-size: 1.15rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.site-logo-sub {
+  margin-left: 8px;
+  color: var(--color-accent);
+  font-size: 0.8rem;
+}
+
+.site-nav {
+  display: flex;
+  gap: 16px;
+}
+
+.site-nav a {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+.site-nav a:hover {
+  text-decoration: underline;
+}
+
+.header-progress {
+  margin: 0 0 0 auto;
+  color: var(--color-ink-soft);
+  font-size: 0.9rem;
+}
+
+.app-main {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px var(--space) 48px;
+}
+
+.site-footer {
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-ink-soft);
+  font-size: 0.85rem;
+  padding: 20px var(--space) 32px;
+  text-align: center;
+}
+
+.toast-region {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 50;
+}
+
+.toast {
+  background: var(--color-ink);
+  color: #fff;
+  border-radius: var(--radius);
+  padding: 10px 16px;
+  font-size: 0.9rem;
+  box-shadow: 0 4px 16px rgba(34, 48, 74, 0.25);
+}
+
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 20px;
+}
+
+code,
+.mono {
+  font-family: var(--font-mono);
+}
+
+/* 動きを減らす設定に配慮する（クリア演出等のアニメーションはこの範囲で抑制する） */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* --- 共通部品 --- */
+.btn {
+  display: inline-block;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-ink);
+  padding: 8px 18px;
+  font-size: 0.95rem;
+  font-family: inherit;
+  cursor: pointer;
+  text-decoration: none;
+  line-height: 1.4;
+}
+
+.btn:hover {
+  border-color: var(--color-accent);
+}
+
+.btn-primary {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.btn-quiet {
+  background: transparent;
+  color: var(--color-ink-soft);
+}
+
+.btn-small {
+  padding: 4px 12px;
+  font-size: 0.85rem;
+}
+
+.btn.is-active,
+.tab-button.is-active {
+  background: var(--color-accent-soft);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  font-weight: 700;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 3px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.note {
+  color: var(--color-ink-soft);
+  font-size: 0.85rem;
+}
+
+.warn-text {
+  color: var(--color-revert);
+  font-weight: 600;
+}
+
+.card h2 {
+  margin-top: 0.4em;
+}
+
+.field-label {
+  display: block;
+  margin: 10px 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.field-label.inline {
+  display: inline-block;
+  margin-right: 16px;
+}
+
+.input-select,
+.input-text {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  font: inherit;
+  background: var(--color-surface);
+  color: var(--color-ink);
+}
+
+.field-label.inline .input-select {
+  display: inline-block;
+  width: auto;
+  margin-left: 8px;
+}
+
+/* --- S-01 トップ / S-03 課題一覧 --- */
+.hero h1 {
+  margin-top: 0;
+  font-size: 1.8rem;
+}
+
+.howto-steps li,
+.promise-list li {
+  margin: 6px 0;
+}
+
+.challenge-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+  margin: 16px 0;
+}
+
+.challenge-card-meta {
+  list-style: none;
+  margin: 8px 0;
+  padding: 0;
+  color: var(--color-ink-soft);
+  font-size: 0.9rem;
+}
+
+.challenge-number {
+  color: var(--color-accent);
+  font-weight: 700;
+  margin: 0;
+}
+
+.challenge-card-title,
+.challenge-title {
+  margin: 4px 0;
+}
+
+.challenge-subtitle {
+  color: var(--color-ink-soft);
+  margin: 4px 0;
+}
+
+.challenge-filters {
+  margin: 12px 0;
+}
+
+/* --- S-02 ダッシュボード --- */
+.summary-list,
+.wallet-balances,
+.preview-list {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 16px;
+  margin: 12px 0;
+}
+
+.summary-list dt,
+.wallet-balances dt,
+.preview-list dt {
+  font-weight: 600;
+  color: var(--color-ink-soft);
+}
+
+.summary-list dd,
+.wallet-balances dd,
+.preview-list dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.xp-bar {
+  width: 100%;
+  height: 18px;
+  accent-color: var(--color-accent);
+}
+
+.badge-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.badge-item {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 12px;
+}
+
+.badge-item.is-earned {
+  background: var(--color-success-soft);
+  border-color: var(--color-success);
+}
+
+.badge-item.is-locked {
+  color: var(--color-ink-soft);
+  background: var(--color-bg);
+}
+
+.badge-name {
+  font-weight: 700;
+  margin: 0 0 4px;
+}
+
+.badge-desc {
+  margin: 0 0 4px;
+  font-size: 0.9rem;
+}
+
+.badge-state {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.progress-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.progress-table th,
+.progress-table td {
+  border-bottom: 1px solid var(--color-border);
+  padding: 8px;
+  text-align: left;
+}
+
+.data-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.import-label {
+  cursor: pointer;
+}
+
+/* --- S-04 プレイ画面 --- */
+.play-layout {
+  display: grid;
+  grid-template-columns: minmax(300px, 35%) 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+.play-right {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+@media (max-width: 860px) {
+  .play-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.challenge-meta {
+  color: var(--color-ink-soft);
+  font-size: 0.9rem;
+}
+
+.status-badge {
+  display: inline-block;
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  border-radius: 999px;
+  padding: 2px 12px;
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.checklist {
+  list-style: none;
+  padding: 0;
+}
+
+.checklist-item {
+  padding: 6px 0;
+  color: var(--color-ink-soft);
+}
+
+.checklist-item.is-done {
+  color: var(--color-ink);
+}
+
+.checklist-mark {
+  display: inline-block;
+  width: 1.6em;
+  font-weight: 700;
+  color: var(--color-success);
+}
+
+.quiz-item {
+  border-top: 1px solid var(--color-border);
+  padding: 10px 0;
+}
+
+.quiz-prompt {
+  font-weight: 600;
+}
+
+.quiz-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.quiz-numeric {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.quiz-feedback {
+  font-weight: 600;
+}
+
+.quiz-ok {
+  color: var(--color-success);
+}
+
+.quiz-ng {
+  color: var(--color-revert);
+}
+
+.panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+/* --- 疑似ウォレット --- */
+.wallet-status {
+  font-weight: 700;
+  margin: 0 0 4px;
+}
+
+.wallet-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--color-success);
+  margin-right: 8px;
+}
+
+.wallet-address {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  overflow-wrap: anywhere;
+}
+
+.wallet-note {
+  color: var(--color-ink-soft);
+  font-size: 0.85rem;
+  margin: 4px 0;
+}
+
+/* --- 疑似エクスプローラー --- */
+.explorer-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.tab-button {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  border-radius: 999px;
+  padding: 6px 16px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.function-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.function-item {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+}
+
+.function-header {
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  font: inherit;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  cursor: pointer;
+  padding: 4px 0;
+  color: var(--color-ink);
+}
+
+.function-name {
+  font-family: var(--font-mono);
+  margin: 4px 0;
+}
+
+.function-desc {
+  color: var(--color-ink-soft);
+  font-size: 0.9rem;
+}
+
+.read-result-line {
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  margin: 4px 0;
+  overflow-wrap: anywhere;
+}
+
+.revert-reasons {
+  color: var(--color-ink-soft);
+  font-size: 0.9rem;
+}
+
+.form-error {
+  color: var(--color-revert);
+  font-weight: 600;
+}
+
+.result-card {
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin: 10px 0;
+}
+
+.result-card.is-success {
+  background: var(--color-success-soft);
+  border: 1px solid var(--color-success);
+}
+
+.result-card.is-revert {
+  background: var(--color-revert-soft);
+  border: 1px solid var(--color-revert);
+}
+
+.diff-list li {
+  overflow-wrap: anywhere;
+}
+
+.log-filters {
+  display: flex;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.logs-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.log-row {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+.log-status {
+  font-weight: 700;
+}
+
+.log-status.ok {
+  color: var(--color-success);
+}
+
+.log-status.revert {
+  color: var(--color-revert);
+}
+
+.revert-quiz {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+  margin-top: 8px;
+}
+
+/* --- モーダル / S-08 演出 --- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(34, 48, 74, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 16px;
+}
+
+.modal {
+  background: var(--color-surface);
+  border-radius: var(--radius);
+  padding: 24px;
+  max-width: 560px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  position: relative;
+}
+
+.modal-title {
+  margin-top: 0;
+}
+
+.modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+
+.clear-body {
+  position: relative;
+  overflow: hidden;
+  padding-top: 8px;
+}
+
+.confetti {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.confetti-piece {
+  position: absolute;
+  top: -12px;
+  width: 8px;
+  height: 12px;
+  border-radius: 2px;
+  animation: confetti-fall 2.4s ease-in forwards;
+}
+
+.confetti-piece:nth-child(3n+1) { background: var(--color-accent); }
+.confetti-piece:nth-child(3n+2) { background: var(--color-success); }
+.confetti-piece:nth-child(3n) { background: var(--color-revert); }
+.confetti-piece:nth-child(1) { left: 6%; animation-delay: 0s; }
+.confetti-piece:nth-child(2) { left: 14%; animation-delay: 0.25s; }
+.confetti-piece:nth-child(3) { left: 23%; animation-delay: 0.1s; }
+.confetti-piece:nth-child(4) { left: 32%; animation-delay: 0.4s; }
+.confetti-piece:nth-child(5) { left: 41%; animation-delay: 0.05s; }
+.confetti-piece:nth-child(6) { left: 50%; animation-delay: 0.3s; }
+.confetti-piece:nth-child(7) { left: 58%; animation-delay: 0.15s; }
+.confetti-piece:nth-child(8) { left: 66%; animation-delay: 0.45s; }
+.confetti-piece:nth-child(9) { left: 74%; animation-delay: 0.2s; }
+.confetti-piece:nth-child(10) { left: 82%; animation-delay: 0.35s; }
+.confetti-piece:nth-child(11) { left: 90%; animation-delay: 0.08s; }
+.confetti-piece:nth-child(12) { left: 96%; animation-delay: 0.28s; }
+
+@keyframes confetti-fall {
+  0% { transform: translateY(0) rotate(0deg); opacity: 1; }
+  100% { transform: translateY(220px) rotate(320deg); opacity: 0.4; }
+}
+
+.clear-message {
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.clear-xp,
+.clear-levelup,
+.clear-badges {
+  font-weight: 700;
+  color: var(--color-accent);
+}
+
+.retry-hint {
+  font-weight: 600;
+}
+
+/* --- S-09 ヘルプ --- */
+.glossary dt {
+  font-weight: 700;
+  margin-top: 12px;
+}
+
+.glossary dd {
+  margin: 4px 0 0;
+  color: var(--color-ink-soft);
+}
