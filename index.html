@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- CSP: 設計書 0.5.3 の方針。外部オリジンへの読み込み・接続を一切許可しない。 -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'"
+    />
+    <title>直コン練習サイト（疑似シミュレーター）| 『直コン徹底解説本（仮題）』連動</title>
+    <meta
+      name="description"
+      content="実チェーンに接続しない練習用の疑似シミュレーターです。エクスプローラーからコントラクトを直接読む・書く操作を、安全に練習できます。"
+    />
+  </head>
+  <body>
+    <!-- 安全バナー（常時表示・閉じられない）: 設計書 0.5.2 / 第1節 -->
+    <div class="safety-banner" role="note">
+      これは練習用の疑似シミュレーターです。実チェーンには接続していません。表示されるアドレス・残高はすべて架空です。秘密鍵・シードフレーズは絶対に入力しないでください。秘密鍵等の入力欄はありません。
+    </div>
+
+    <header class="site-header">
+      <a class="site-logo" href="#/">直コン練習サイト<span class="site-logo-sub">疑似シミュレーター</span></a>
+      <nav class="site-nav" aria-label="メインメニュー">
+        <a href="#/challenges">課題一覧</a>
+        <a href="#/dashboard">進捗ダッシュボード</a>
+        <a href="#/help">ヘルプ／安全ガイド</a>
+      </nav>
+      <p class="header-progress" id="header-progress">Lv.1 見習いエクスプローラー ・ 0 XP</p>
+    </header>
+
+    <main id="app" class="app-main" tabindex="-1">
+      <!-- 各画面は src/main.ts のハッシュルーターが描画する -->
+    </main>
+
+    <div class="toast-region" id="toast-region" aria-live="polite"></div>
+
+    <footer class="site-footer">
+      <p>『直コン徹底解説本（仮題）』連動 練習サイト（疑似シミュレーター）</p>
+      <p>このサイトは GitHub Pages で公開されている静的サイトです。実チェーンには接続しておらず、実在の資産は一切動きません。</p>
+      <p>XP・レベル・バッジは学習の目安であり、公式な資格・技能の証明ではありません。</p>
+    </footer>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
