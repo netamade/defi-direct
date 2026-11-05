@@ -52,35 +52,35 @@ export function renderTop(app: HTMLElement, data: LoadedData): void {
   const root = el("div", "top-page");
 
   const hero = el("section", "card hero");
-  hero.append(text("h1", "直コンを、触って練習しよう"));
+  hero.append(text("h1", "スマートコントラクト直接操作 疑似シミュレーター"));
   hero.append(
     text(
       "p",
-      "このサイトは『直コン徹底解説本（仮題）』の練習用サイトです。実チェーンには接続していない疑似シミュレーターなので、安心して何度でも試せます。",
+      "本サイトは、書籍『直コン徹底解説本』と連動した練習用の疑似シミュレーターです。実チェーンや実際の暗号資産（仮想通貨）とは一切接続されていない安全な環境で、エクスプローラーからの直接コントラクト操作（直コン）を何度でも体験・学習できます。",
     ),
   );
   root.append(hero);
 
   const steps = el("section", "card");
-  steps.append(text("h2", "始め方（3ステップ）"));
+  steps.append(text("h2", "シミュレーターの進め方"));
   const ol = el("ol", "howto-steps");
-  ol.append(el("li", undefined, ["課題を選ぶ"]));
-  ol.append(el("li", undefined, ["疑似エクスプローラーで読む・書く"]));
-  ol.append(el("li", undefined, ["クリアしてXPをためる"]));
+  ol.append(el("li", undefined, ["課題を選択する：一覧から現在の学習フェーズに合った課題を選びます。"]));
+  ol.append(el("li", undefined, ["疑似環境で操作する：疑似エクスプローラー画面を用いて、コントラクトのRead（照会）やWrite（書き込み）を行います。"]));
+  ol.append(el("li", undefined, ["条件を達成する：指定された操作手順を完了し、実践的な知識を身につけましょう。"]));
   steps.append(ol);
   root.append(steps);
 
   const promises = el("section", "card");
-  promises.append(text("h2", "安全性の3つの約束"));
+  promises.append(text("h2", "安全に学習いただくための3つの約束"));
   const ul = el("ul", "promise-list");
-  ul.append(el("li", undefined, ["ウォレット接続なし：実ウォレットを接続する機能はありません"]));
-  ul.append(el("li", undefined, ["秘密鍵入力なし：秘密鍵・シードフレーズの入力欄そのものがありません"]));
-  ul.append(el("li", undefined, ["実送金なし：表示されるアドレス・残高はすべて架空で、実資産は動きません"]));
+  ul.append(el("li", undefined, ["ウォレット接続不要：MetaMask等の実ウォレットを接続する機能は一切存在しません。"]));
+  ul.append(el("li", undefined, ["秘密鍵・シードフレーズの入力禁止：これらを入力する画面や項目は設けていません。"]));
+  ul.append(el("li", undefined, ["架空の資産とアドレス：表示されるトークン、アドレス、残高はすべて疑似データです。実資産が失われることはありません。"]));
   promises.append(ul);
   root.append(promises);
 
   const listSection = el("section");
-  listSection.append(text("h2", "課題の抜粋"));
+  listSection.append(text("h2", "課題一覧（抜粋）"));
   const grid = el("div", "challenge-grid");
   for (const def of data.challenges.slice(0, 3)) {
     grid.append(
@@ -96,7 +96,7 @@ export function renderTop(app: HTMLElement, data: LoadedData): void {
   root.append(
     text(
       "p",
-      "対象読者：ウォレットでのswapや送金は経験済みで、公式UIの裏で何が起きているかを自分で確かめたい方。前提知識：ウォレットの基本操作と、トークンの送受信の経験。",
+      "対象読者：ウォレットを用いたswapや送金の経験があり、フロントエンドの裏側でブロックチェーンがどのように動いているかを直接確かめたい方。前提知識：ウォレットの基本的な操作方法およびトークン送受信の仕組み。",
       "note",
     ),
   );
@@ -190,14 +190,14 @@ export function renderChallenges(app: HTMLElement, data: LoadedData): void {
 // --- S-09 ヘルプ／用語・安全ガイド ---
 
 const GLOSSARY: { term: string; body: string }[] = [
-  { term: "decimals", body: "トークンの小数点以下の桁数。raw値をこの桁数で割ると表示値になります。トークンごとに違うので、必ずそのトークンのdecimalsを確認します。" },
-  { term: "raw値（最小単位）", body: "コントラクトが扱う最小単位の整数。表示値に10のdecimals乗をかけたものがraw値です。" },
-  { term: "allowance", body: "あるアドレス（spender）が、持ち主の代わりに使えるトークンの残りの量。approveで設定します。" },
-  { term: "approve", body: "spenderへトークンの使用許可を与える操作。加算ではなく上書きです。0をapproveすると解除（revoke）になります。" },
-  { term: "revert", body: "コントラクトが処理を止めて、状態の変更を取り消すこと。このサイトでは「コントラクトが止めてくれたサイン」として学びます。ガス代だけはかかります（疑似環境でも同じです）。" },
-  { term: "ガス", body: "トランザクションの手数料。このサイトのガス数値はすべて疑似値で、疑似ETHから支払われます。" },
-  { term: "疑似ブロック", body: "このサイトの簡易モデルでは、Writeがブロックに含まれるたびに1つ進みます。実際のブロックは時間経過で生成され、複数のトランザクションを含みます。" },
-  { term: "無制限承認", body: "allowanceを最大値（type(uint256).max相当）にするapprove。便利な反面、許可が残り続けるため、このサイトの課題では「しない操作」として扱います。" },
+  { term: "decimals", body: "トークンの小数点以下の桁数を示します。コントラクト上のraw値を10のdecimals乗で割ることで、普段私たちが目にする表示値となります。トークンごとに設定値が異なるため、操作前に必ず確認が必要です。" },
+  { term: "raw値", body: "スマートコントラクト内で実際に扱われている、小数点を含まない最小単位の整数値です。表示値に対して10のdecimals乗を掛けた値となります。" },
+  { term: "allowance", body: "トークンの所有者が、特定のアドレス（spender）に対して引き出しを許可している残りのトークン量です。" },
+  { term: "approve", body: "第三者（DEXなどのコントラクト）に対して、自身のトークンを移動させる権限を与える操作です。指定した数量で上書きされる仕様であり、0を指定することで承認状態を解除（リボーク）できます。" },
+  { term: "revert", body: "エラーなどの理由により、トランザクションの処理が中断され、状態の変更がすべて取り消される（巻き戻る）仕組みです。ただし、トランザクション実行にかかったガス代（手数料）は消費されます。実際のチェーンでは本物のガス代が消費されますが、本シミュレーターでは疑似ETHによる疑似的なガスが消費されます。" },
+  { term: "ガス（Gas）", body: "ブロックチェーン上でトランザクションを実行する際に発生するネットワーク手数料です。本シミュレーターでは疑似的なETHを用いて計算されます。" },
+  { term: "疑似ブロック", body: "本サイト独自の簡易的なブロック生成モデルです。Write操作（書き込み）が実行されるたびにブロックが1つ進む仕様となっています。実際のブロックチェーンとは異なります。" },
+  { term: "無制限承認", body: "allowanceに事実上の無限大（type(uint256).max）を設定するapprove操作です。利便性は高い反面、悪意あるコントラクトに無限の引き出し権限を与えたままになるリスクがあるため、本サイトの課題では推奨しない操作として扱います。" },
 ];
 
 export function renderHelp(app: HTMLElement): void {
@@ -208,10 +208,10 @@ export function renderHelp(app: HTMLElement): void {
   const safety = el("section", "card");
   safety.append(text("h2", "安全ガイド"));
   const ul = el("ul", "promise-list");
-  ul.append(el("li", undefined, ["このサイトは練習用の疑似シミュレーターです。実チェーンには接続していません。"]));
-  ul.append(el("li", undefined, ["秘密鍵・シードフレーズは絶対に入力しないでください。このサイトに入力欄はありません。もし本物のサイトで求められたら、それは危険信号です。"]));
-  ul.append(el("li", undefined, ["本番の原則：シミュレーターで同じ操作を成功させてから、少額で試し、確認してから進みます。分からなければ署名しない。"]));
-  ul.append(el("li", undefined, ["表示されるアドレスには「疑似」を付けています。実在のアドレスと混同しないでください。"]));
+  ul.append(el("li", undefined, ["本サイトは学習用の疑似シミュレーターであり、実際のブロックチェーンネットワークには接続されていません。"]));
+  ul.append(el("li", undefined, ["実ウォレットの秘密鍵やシードフレーズを入力することは絶対に避けてください。本サイトにはそれらを入力する機能は存在しません。"]));
+  ul.append(el("li", undefined, ["実践における原則：本環境で操作手順と仕組みを十分に理解した上で、実際のチェーンではまず少額でのテスト実行を徹底してください。内容が理解できないトランザクションには絶対に署名しないでください。"]));
+  ul.append(el("li", undefined, ["サイト内に表示されるアドレスやトークン名はすべて架空（疑似データ）です。実在のプロジェクトや資産とは一切関係ありません。"]));
   safety.append(ul);
   root.append(safety);
 
