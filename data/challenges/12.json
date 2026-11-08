@@ -248,5 +248,98 @@
         "expectedRaw": "19000000000000000000"
       }
     ]
-  }
+  },
+  "stepChecks": [
+    {
+      "condition": {
+        "type": "actionSequence",
+        "sequence": [
+          {
+            "functionName": "getAmountsOut",
+            "kind": "read",
+            "contract": "0x4444444444444444444444444444444444444444",
+            "args": {
+              "amountInRaw": "20000000"
+            },
+            "returnRaw": "20000000000000000000"
+          }
+        ]
+      }
+    },
+    {
+      "condition": {
+        "type": "actionSequence",
+        "sequence": [
+          {
+            "functionName": "approve",
+            "kind": "write",
+            "contract": "0x2222222222222222222222222222222222222222",
+            "args": {
+              "spender": "dex",
+              "amountRaw": "20000000"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "condition": {
+        "type": "actionSequence",
+        "sequence": [
+          {
+            "functionName": "swapExactUSDCForTKN",
+            "kind": "write",
+            "contract": "0x4444444444444444444444444444444444444444",
+            "args": {
+              "amountInRaw": "20000000",
+              "amountOutMinRaw": "20000000000000000000"
+            },
+            "status": 0,
+            "revertCode": "INSUFFICIENT_OUTPUT_AMOUNT"
+          }
+        ]
+      }
+    },
+    {
+      "condition": {
+        "type": "actionSequence",
+        "sequence": [
+          {
+            "functionName": "swapExactUSDCForTKN",
+            "kind": "write",
+            "contract": "0x4444444444444444444444444444444444444444",
+            "args": {
+              "amountInRaw": "20000000",
+              "amountOutMinRaw": "19000000000000000000"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "condition": {
+        "type": "actionSequence",
+        "sequence": [
+          {
+            "functionName": "swapExactUSDCForTKN",
+            "kind": "write",
+            "contract": "0x4444444444444444444444444444444444444444",
+            "args": {
+              "amountInRaw": "20000000",
+              "amountOutMinRaw": "19000000000000000000"
+            }
+          },
+          {
+            "functionName": "balanceOf",
+            "kind": "read",
+            "contract": "0x5555555555555555555555555555555555555555",
+            "args": {
+              "account": "user"
+            },
+            "returnRaw": "19000000000000000000"
+          }
+        ]
+      }
+    }
+  ]
 }

@@ -153,5 +153,101 @@
         "expectedRaw": "60000000000000000"
       }
     ]
-  }
+  },
+  "stepChecks": [
+    {
+      "condition": {
+        "type": "actionSequence",
+        "sequence": [
+          {
+            "functionName": "balanceOf",
+            "kind": "read",
+            "contract": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "args": {
+              "account": "user"
+            },
+            "returnRaw": "0"
+          }
+        ]
+      }
+    },
+    {
+      "condition": {
+        "type": "actionSequence",
+        "sequence": [
+          {
+            "functionName": "deposit",
+            "kind": "write",
+            "contract": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "args": {
+              "valueRaw": "100000000000000000"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "condition": {
+        "type": "actionSequence",
+        "sequence": [
+          {
+            "functionName": "deposit",
+            "kind": "write",
+            "contract": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "args": {
+              "valueRaw": "100000000000000000"
+            }
+          },
+          {
+            "functionName": "balanceOf",
+            "kind": "read",
+            "contract": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "args": {
+              "account": "user"
+            },
+            "returnRaw": "100000000000000000"
+          }
+        ]
+      }
+    },
+    {
+      "condition": {
+        "type": "actionSequence",
+        "sequence": [
+          {
+            "functionName": "withdraw",
+            "kind": "write",
+            "contract": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "args": {
+              "amountRaw": "40000000000000000"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "condition": {
+        "type": "actionSequence",
+        "sequence": [
+          {
+            "functionName": "withdraw",
+            "kind": "write",
+            "contract": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "args": {
+              "amountRaw": "40000000000000000"
+            }
+          },
+          {
+            "functionName": "balanceOf",
+            "kind": "read",
+            "contract": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "args": {
+              "account": "user"
+            },
+            "returnRaw": "60000000000000000"
+          }
+        ]
+      }
+    }
+  ]
 }

@@ -196,5 +196,159 @@
         "expectedRaw": "80000000"
       }
     ]
-  }
+  },
+  "stepChecks": [
+    {
+      "condition": {
+        "type": "actionSequence",
+        "sequence": [
+          {
+            "functionName": "allowance",
+            "kind": "read",
+            "contract": "0x2222222222222222222222222222222222222222",
+            "args": {
+              "owner": "friend",
+              "spender": "user"
+            },
+            "returnRaw": "100000000"
+          }
+        ]
+      }
+    },
+    {
+      "condition": {
+        "type": "actionSequence",
+        "sequence": [
+          {
+            "functionName": "transferFrom",
+            "kind": "write",
+            "contract": "0x2222222222222222222222222222222222222222",
+            "args": {
+              "from": "friend",
+              "to": "user",
+              "amountRaw": "101000000"
+            },
+            "status": 0,
+            "revertCode": "INSUFFICIENT_ALLOWANCE"
+          }
+        ]
+      }
+    },
+    {
+      "condition": {
+        "type": "actionSequence",
+        "sequence": [
+          {
+            "functionName": "transferFrom",
+            "kind": "write",
+            "contract": "0x2222222222222222222222222222222222222222",
+            "args": {
+              "from": "friend",
+              "to": "user",
+              "amountRaw": "80000000"
+            },
+            "status": 0,
+            "revertCode": "INSUFFICIENT_BALANCE"
+          }
+        ]
+      }
+    },
+    {
+      "condition": {
+        "type": "actionSequence",
+        "sequence": [
+          {
+            "functionName": "transferFrom",
+            "kind": "write",
+            "contract": "0x2222222222222222222222222222222222222222",
+            "args": {
+              "from": "friend",
+              "to": "user",
+              "amountRaw": "20000000"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "condition": {
+        "op": "and",
+        "conditions": [
+          {
+            "type": "actionSequence",
+            "sequence": [
+              {
+                "functionName": "transferFrom",
+                "kind": "write",
+                "contract": "0x2222222222222222222222222222222222222222",
+                "args": {
+                  "from": "friend",
+                  "to": "user",
+                  "amountRaw": "20000000"
+                }
+              },
+              {
+                "functionName": "allowance",
+                "kind": "read",
+                "contract": "0x2222222222222222222222222222222222222222",
+                "args": {
+                  "owner": "friend",
+                  "spender": "user"
+                },
+                "returnRaw": "80000000"
+              }
+            ]
+          },
+          {
+            "type": "actionSequence",
+            "sequence": [
+              {
+                "functionName": "transferFrom",
+                "kind": "write",
+                "contract": "0x2222222222222222222222222222222222222222",
+                "args": {
+                  "from": "friend",
+                  "to": "user",
+                  "amountRaw": "20000000"
+                }
+              },
+              {
+                "functionName": "balanceOf",
+                "kind": "read",
+                "contract": "0x2222222222222222222222222222222222222222",
+                "args": {
+                  "account": "user"
+                },
+                "returnRaw": "20000000"
+              }
+            ]
+          },
+          {
+            "type": "actionSequence",
+            "sequence": [
+              {
+                "functionName": "transferFrom",
+                "kind": "write",
+                "contract": "0x2222222222222222222222222222222222222222",
+                "args": {
+                  "from": "friend",
+                  "to": "user",
+                  "amountRaw": "20000000"
+                }
+              },
+              {
+                "functionName": "balanceOf",
+                "kind": "read",
+                "contract": "0x2222222222222222222222222222222222222222",
+                "args": {
+                  "account": "friend"
+                },
+                "returnRaw": "40000000"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
 }

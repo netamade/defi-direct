@@ -92,6 +92,17 @@ export type PassCondition =
   | { type: "quizCorrect"; questionId: string; correctOptionId?: string; correctValue?: string }
   | { type: "forbiddenAction"; forbiddenId: string };
 
+/** 手順表示専用の操作証跡。合否判定・保存状態のスキーマとは独立。 */
+export type ChecklistCondition =
+  | { type: "actionSequence"; sequence: (SequenceStep & { revertCode?: string })[] }
+  | { type: "quizCorrect"; questionId: string }
+  | { op: "and" | "or"; conditions: ChecklistCondition[] };
+
+export interface StepCheck {
+  condition: ChecklistCondition;
+  optional?: boolean;
+}
+
 export interface ForbiddenAction {
   id: string;
   description: string;
@@ -119,6 +130,7 @@ export interface ChallengeDefinition {
   goal: string; // 学習ゴール1文
   scenario: string;
   steps: string[]; // 手順チェックリストの文言（表示用）
+  stepChecks: StepCheck[]; // stepsと同じ順・件数の操作証跡（文言から推測しない）
   hints: string[]; // 段階式ヒント。答えそのものは漏らさない
   successMessage: string;
   retryMessage: string;

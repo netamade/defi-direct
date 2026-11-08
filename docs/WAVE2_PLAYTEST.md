@@ -11,7 +11,9 @@ Write は毎回、数量換算・状態変化・ガス代のプレビューを�
 3. 同じ宛先で amount＝80。`INSUFFICIENT_BALANCE` を確認。
 4. amount＝20で成功。友人40 USDC、あなた20 USDCになる。
 5. Read の `allowance` を同じ指定で再実行し、80 USDCを確認。QUEST CLEARと+200 XPを確認。
-   `balanceOf` で両者の残高も確認できる。
+   `balanceOf` で両者の残高も確認すると、最後の手順にもチェックが付く。
+   allowanceだけのReadでは、クリア後も最後の手順は未チェック。
+   操作直後のチェック状態の詳細は [CHECKLIST.md](CHECKLIST.md) を参照。
 
 友人があなたにapprove済みの状態から開始する。現在の送信者は常にあなたで、fromの友人になりすます仕組みは使わない。
 

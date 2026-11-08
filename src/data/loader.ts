@@ -160,6 +160,41 @@ function validatePassCondition(node: unknown, path: string, errors: string[]): v
   }
 }
 
+/** 手順表示の条件は操作履歴とクイズだけ。状態や合否への推測フォールバックはしない。 */
+function validateChecklistCondition(node: unknown, path: string, errors: string[]): void {
+  if (!isRecord(node)) { errors.push(`${path}: 条件がオブジェクトではありません`); return; }
+  if (node["op"] === "and" || node["op"] === "or") {
+    if (Object.keys(node).some(k => k !== "op" && k !== "conditions")) errors.push(`${path}: 未知のキーがあります`);
+    const children = node["conditions"];
+    if (!Array.isArray(children) || children.length === 0) { errors.push(`${path}: conditions が空、または配列ではありません`); return; }
+    children.forEach((child, i) => validateChecklistCondition(child, `${path}.conditions[${i}]`, errors));
+    return;
+  }
+  if (node["type"] === "quizCorrect") {
+    validatePassCondition(node, path, errors);
+    if (Object.keys(node).some(k => k !== "type" && k !== "questionId")) errors.push(`${path}: 未知のキーがあります`);
+    return;
+  }
+  if (node["type"] !== "actionSequence") { errors.push(`${path}: 手順表示の未知の条件です`); return; }
+  const sequence = node["sequence"];
+  if (!Array.isArray(sequence)) { errors.push(`${path}: sequence は配列である必要があります`); return; }
+  // 既存条件の構造検証を流用し、手順表示専用のrevertCodeだけ追加で検証する。
+  validatePassCondition({ ...node, sequence: sequence.map(action => {
+    if (!isRecord(action)) return action;
+    const { revertCode: _revertCode, ...step } = action;
+    return step;
+  }) }, path, errors);
+  sequence.forEach((action, i) => {
+    if (!isRecord(action)) return;
+    const label = `${path}.sequence[${i}]`;
+    if (action["kind"] !== "read" && action["kind"] !== "write") errors.push(`${label}: kind は read / write が必要です`);
+    if (action["contract"] !== undefined && typeof action["contract"] !== "string") errors.push(`${label}: contract は文字列が必要です`);
+    if (action["status"] !== undefined && action["status"] !== 0 && action["status"] !== 1) errors.push(`${label}: status は0か1が必要です`);
+    if (action["returnRaw"] !== undefined && (typeof action["returnRaw"] !== "string" || action["kind"] !== "read")) errors.push(`${label}: returnRaw はReadの文字列が必要です`);
+    if (action["revertCode"] !== undefined && (typeof action["revertCode"] !== "string" || action["kind"] !== "write" || action["status"] !== 0)) errors.push(`${label}: revertCode はstatus=0のWriteに指定してください`);
+  });
+}
+
 /** 課題JSON 1件の検証。問題があれば errors に積む（設計書 3.6 の読み込み時バリデーション） */
 export function validateChallengeDefinition(raw: unknown): { ok: boolean; errors: string[] } {
   const errors: string[] = [];
@@ -183,6 +218,18 @@ export function validateChallengeDefinition(raw: unknown): { ok: boolean; errors
   }
   if (!Array.isArray(def["steps"]) || !def["steps"].every((s) => typeof s === "string")) {
     errors.push("steps は文字列の配列である必要があります");
+  }
+  const stepChecks = def["stepChecks"];
+  if (!Array.isArray(stepChecks) || !Array.isArray(def["steps"]) || stepChecks.length !== def["steps"].length) {
+    errors.push("stepChecks はstepsと同じ件数の配列が必要です");
+  } else {
+    stepChecks.forEach((check, i) => {
+      const path = `stepChecks[${i}]`;
+      if (!isRecord(check)) { errors.push(`${path}: オブジェクトが必要です`); return; }
+      if (Object.keys(check).some(k => k !== "condition" && k !== "optional")) errors.push(`${path}: 未知のキーがあります`);
+      if (check["optional"] !== undefined && typeof check["optional"] !== "boolean") errors.push(`${path}: optional はbooleanが必要です`);
+      validateChecklistCondition(check["condition"], `${path}.condition`, errors);
+    });
   }
   if (!Array.isArray(def["hints"]) || !def["hints"].every((s) => typeof s === "string")) {
     errors.push("hints は文字列の配列である必要があります");
