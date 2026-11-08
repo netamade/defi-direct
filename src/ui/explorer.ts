@@ -356,7 +356,7 @@ export class ExplorerView {
 
     const errorBox = el("p", "form-error");
     errorBox.hidden = true;
-    const isSwap = fn.name !== "approve" && fn.name !== "transfer";
+    const isSwap = fn.name === "swapExactUSDCForTKN";
     // 対象コントラクトの切替に追従するため、decimals / symbol は都度引く
     const amountSpec = (): { decimals: number; symbol: string } => {
       const address = isSwap ? (this.session.def.swap?.tokenIn ?? "") : this.writeContract;
@@ -446,7 +446,7 @@ export class ExplorerView {
       errorBox.textContent = message;
       errorBox.hidden = false;
     };
-    const isSwap = fn.name !== "approve" && fn.name !== "transfer";
+    const isSwap = fn.name === "swapExactUSDCForTKN";
     const amountDecimals = isSwap
       ? (this.session.state.tokens[this.session.def.swap?.tokenIn ?? ""]?.decimals ?? 18)
       : (this.session.state.tokens[this.writeContract]?.decimals ?? 18);
@@ -471,8 +471,7 @@ export class ExplorerView {
         showError(checked.message);
         return;
       }
-      if (fn.name === "approve" || fn.name === "transfer") args["amountRaw"] = checked.value.toString();
-      else args["amountInRaw"] = checked.value.toString();
+      args[`${amountArg.name}Raw`] = checked.value.toString();
     }
     if (isSwap) {
       contract = this.session.engine.config.swap?.dexAddress ?? contract;

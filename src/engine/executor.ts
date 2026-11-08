@@ -30,6 +30,7 @@ export interface GasConfig {
 /** 設計書 2.5 の既定ガス（すべて疑似値）。課題JSONの gas で上書きできる。 */
 export const DEFAULT_GAS: Record<string, GasConfig> = {
   approve: { gasUsed: 45_000, gasPriceGwei: 20 },
+  transferFrom: { gasUsed: 65_000, gasPriceGwei: 20 },
   transfer: { gasUsed: 51_000, gasPriceGwei: 20 }, // ERC-20 transfer想定の疑似値。21,000はネイティブETH送金の値なので使わない
   swapExactUSDCForTKN: { gasUsed: 120_000, gasPriceGwei: 20 },
 };
@@ -85,7 +86,7 @@ export function engineConfigFromChallenge(def: {
 }
 
 export type ReadFunctionName = "name" | "symbol" | "decimals" | "totalSupply" | "balanceOf" | "allowance";
-export type WriteFunctionName = "approve" | "transfer" | "swapExactUSDCForTKN";
+export type WriteFunctionName = "approve" | "transfer" | "transferFrom" | "swapExactUSDCForTKN";
 
 export type ReadResult =
   | { ok: true; record: CallRecord; valueRaw: bigint; valueDisplay: string }
@@ -351,6 +352,34 @@ export class Engine {
                 afterRaw: (toBefore + amount).toString(),
               },
             );
+          }
+          return diffs;
+        });
+      }
+      case "transferFrom": {
+        const token = this.requireToken(contract);
+        const from = args["from"] ?? "";
+        const to = args["to"] ?? "";
+        const amount = BigInt(args["amountRaw"] ?? "0");
+        const allowance = this.getAllowance(contract, from, userAddress);
+        if (allowance < amount) return revert("INSUFFICIENT_ALLOWANCE");
+        if (to === ZERO_ADDRESS) return revert("ZERO_ADDRESS_RECIPIENT");
+        const balance = token.balances[from] ?? 0n;
+        if (balance < amount) return revert("INSUFFICIENT_BALANCE");
+        return ok(() => {
+          const diffs: StateDiff[] = [];
+          if (amount > 0n && from !== to) {
+            const recipient = token.balances[to] ?? 0n;
+            token.balances[from] = balance - amount;
+            token.balances[to] = recipient + amount;
+            diffs.push(
+              { kind: "balance", token: contract, account: from, beforeRaw: balance.toString(), afterRaw: (balance - amount).toString() },
+              { kind: "balance", token: contract, account: to, beforeRaw: recipient.toString(), afterRaw: (recipient + amount).toString() },
+            );
+          }
+          if (allowance !== MAX_UINT256 && amount > 0n) {
+            this.state.allowances[allowanceKey(from, userAddress, contract)] = allowance - amount;
+            diffs.push({ kind: "allowance", token: contract, spender: userAddress, beforeRaw: allowance.toString(), afterRaw: (allowance - amount).toString() });
           }
           return diffs;
         });

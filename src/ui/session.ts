@@ -175,21 +175,26 @@ export class PlaySession {
         before: describe(contract, before),
         after: describe(contract, amount),
       });
-    } else if (functionName === "transfer") {
+    } else if (functionName === "transfer" || functionName === "transferFrom") {
+      const from = functionName === "transferFrom" ? (args["from"] ?? "") : user;
       const to = args["to"] ?? "";
       const amount = BigInt(args["amountRaw"] ?? "0");
-      const senderBefore = this.engine.getBalance(contract, user);
+      const senderBefore = this.engine.getBalance(contract, from);
       const recipientBefore = this.engine.getBalance(contract, to);
       diffs.push({
-        label: "あなたの残高",
+        label: from === user ? "あなたの残高" : "引き出し元の残高",
         before: describe(contract, senderBefore),
-        after: describe(contract, senderBefore - amount),
+        after: describe(contract, from === to ? senderBefore : senderBefore - amount),
       });
       diffs.push({
         label: "送り先の残高",
         before: describe(contract, recipientBefore),
-        after: describe(contract, recipientBefore + amount),
+        after: describe(contract, from === to ? recipientBefore : recipientBefore + amount),
       });
+      if (functionName === "transferFrom") {
+        const before = this.engine.getAllowance(contract, from, user);
+        diffs.push({ label: "allowance（引き出し元からあなたへの承認量）", before: describe(contract, before), after: describe(contract, before === MAX_UINT256 ? before : before - amount) });
+      }
     } else if (this.engine.config.swap && functionName !== "approve" && functionName !== "transfer") {
       const swap = this.engine.config.swap;
       const amountIn = BigInt(args["amountInRaw"] ?? "0");
@@ -396,6 +401,7 @@ function checklistTarget(text: string): { kind: "read" | "write"; functionName: 
     return { kind: "write", functionName: "swapExactUSDCForTKN" };
   }
   if (text.includes("approve")) return { kind: "write", functionName: "approve" };
+  if (text.includes("transferFrom")) return { kind: "write", functionName: "transferFrom" };
   if (text.includes("transfer")) return { kind: "write", functionName: "transfer" };
   if (text.includes("allowance")) return { kind: "read", functionName: "allowance" };
   if (text.includes("balanceOf") || text.includes("残高")) return { kind: "read", functionName: "balanceOf" };

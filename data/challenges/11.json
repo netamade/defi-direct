@@ -1,0 +1,200 @@
+{
+  "schemaVersion": 1,
+  "id": "11",
+  "title": "transferFrom：承認が使われる側を見る",
+  "subtitle": "transferFrom：承認が使われる側を見る",
+  "chapter": {
+    "bookChapter": 12,
+    "bookTitle": "承認",
+    "section": "本の課題12-1"
+  },
+  "difficulty": 3,
+  "estimatedMinutes": 20,
+  "xp": 200,
+  "badges": [],
+  "forbiddenActions": [],
+  "gas": {
+    "transferFrom": {
+      "gasUsed": 65000,
+      "gasPriceGwei": 20
+    }
+  },
+  "retryMessage": "手順とログを確かめて、リセットしてもう一度挑戦してみよう。",
+  "goal": "他の人から承認された量を引き出し、allowanceの消費と2種類のrevertを確認する。",
+  "scenario": "あなたがspenderになる練習です。友人はあなたに100 USDCの使用をapprove済みで、残高は60 USDCです。友人の承認を使って20 USDCを引き出しましょう。送信者は常にあなたです。",
+  "steps": [
+    "友人からあなたへのallowanceを確認する",
+    "transferFromで101 USDCを試し承認不足を体験する",
+    "transferFromで80 USDCを試し残高不足を体験する",
+    "transferFromで友人からあなたへ20 USDC引き出す",
+    "残りのallowanceと両者の残高を確認する"
+  ],
+  "hints": [
+    "fromは練習用スペンダー（友人）、toはあなたを選ぶよ。",
+    "allowanceのownerは友人、spenderはあなた。承認100より大きい量、残高60より大きい量を順に試そう。",
+    "成功後の承認は80、友人の残高は40、あなたの残高は20だよ。"
+  ],
+  "successMessage": "承認が使われる流れを確認できたね！引き出すたびにallowanceも減るよ。",
+  "contracts": [
+    {
+      "address": "0x2222222222222222222222222222222222222222",
+      "decimals": 6,
+      "isPractice": true,
+      "label": "練習用USDC",
+      "name": "Practice USD Coin",
+      "symbol": "USDC"
+    }
+  ],
+  "initialState": {
+    "userAddress": "0x1111111111111111111111111111111111111111",
+    "ethBalanceWei": "1000000000000000000",
+    "spenderAddresses": {
+      "friend": "0x3333333333333333333333333333333333333333"
+    },
+    "balances": {
+      "0x2222222222222222222222222222222222222222": {
+        "0x1111111111111111111111111111111111111111": "0",
+        "0x3333333333333333333333333333333333333333": "60000000"
+      }
+    },
+    "allowances": {
+      "0x3333333333333333333333333333333333333333:0x1111111111111111111111111111111111111111:0x2222222222222222222222222222222222222222": "100000000"
+    }
+  },
+  "functions": [
+    {
+      "description": "指定アドレスの残高（raw値）を返す",
+      "inputs": [
+        {
+          "description": "残高を調べるアドレス",
+          "name": "account",
+          "type": "address"
+        }
+      ],
+      "kind": "read",
+      "name": "balanceOf"
+    },
+    {
+      "description": "ownerがspenderに承認した量（raw値）を返す",
+      "inputs": [
+        {
+          "description": "承認した人",
+          "name": "owner",
+          "type": "address"
+        },
+        {
+          "description": "承認された相手",
+          "name": "spender",
+          "type": "address"
+        }
+      ],
+      "kind": "read",
+      "name": "allowance"
+    },
+    {
+      "name": "transferFrom",
+      "kind": "write",
+      "description": "fromがあなたに承認した量を使い、toへ送る。",
+      "inputs": [
+        {
+          "name": "from",
+          "type": "address",
+          "description": "引き出し元（友人）"
+        },
+        {
+          "name": "to",
+          "type": "address",
+          "description": "送り先（あなた）"
+        },
+        {
+          "name": "amount",
+          "type": "uint256",
+          "description": "引き出すUSDC（表示値）"
+        }
+      ],
+      "revertReasons": [
+        {
+          "code": "INSUFFICIENT_ALLOWANCE",
+          "message": "引き出し元からあなたへの承認量が足りないよ。"
+        },
+        {
+          "code": "INSUFFICIENT_BALANCE",
+          "message": "引き出し元の残高が足りないよ。"
+        },
+        {
+          "code": "ZERO_ADDRESS_RECIPIENT",
+          "message": "送り先にゼロアドレスは使えないよ。"
+        }
+      ]
+    }
+  ],
+  "passCondition": {
+    "op": "and",
+    "conditions": [
+      {
+        "type": "actionSequence",
+        "sequence": [
+          {
+            "functionName": "allowance",
+            "kind": "read",
+            "args": {
+              "owner": "0x3333333333333333333333333333333333333333",
+              "spender": "0x1111111111111111111111111111111111111111"
+            },
+            "returnRaw": "100000000"
+          },
+          {
+            "functionName": "transferFrom",
+            "kind": "write",
+            "args": {
+              "from": "0x3333333333333333333333333333333333333333",
+              "to": "0x1111111111111111111111111111111111111111",
+              "amountRaw": "20000000"
+            }
+          },
+          {
+            "functionName": "allowance",
+            "kind": "read",
+            "args": {
+              "owner": "0x3333333333333333333333333333333333333333",
+              "spender": "0x1111111111111111111111111111111111111111"
+            },
+            "returnRaw": "80000000"
+          }
+        ]
+      },
+      {
+        "type": "actionFailed",
+        "functionName": "transferFrom",
+        "revertCode": "INSUFFICIENT_ALLOWANCE"
+      },
+      {
+        "type": "actionFailed",
+        "functionName": "transferFrom",
+        "revertCode": "INSUFFICIENT_BALANCE"
+      },
+      {
+        "type": "balanceEquals",
+        "token": "0x2222222222222222222222222222222222222222",
+        "account": "user",
+        "expectedDisplay": "20",
+        "expectedRaw": "20000000"
+      },
+      {
+        "type": "balanceEquals",
+        "token": "0x2222222222222222222222222222222222222222",
+        "account": "0x3333333333333333333333333333333333333333",
+        "expectedDisplay": "40",
+        "expectedRaw": "40000000"
+      },
+      {
+        "type": "allowanceEquals",
+        "token": "0x2222222222222222222222222222222222222222",
+        "owner": "0x3333333333333333333333333333333333333333",
+        "spender": "0x1111111111111111111111111111111111111111",
+        "expectedDisplay": "80",
+        "expectedRaw": "80000000"
+      }
+    ]
+  }
+}
