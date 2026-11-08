@@ -34,6 +34,7 @@ import {
   REVERT_READER_BADGE_ID,
 } from "../scoring/badges";
 import { revertMessage, type RevertCode } from "../engine/validation";
+import { checklistConditionMet } from "./checklist";
 import { levelForXp } from "../scoring/levels";
 
 /** クリアイベント（QUEST CLEAR演出の材料）。false→true へ転じた瞬間にだけ発生する */
@@ -170,21 +171,26 @@ export class PlaySession {
       return `${formatUnits(raw, token.decimals)} ${token.symbol}（raw ${raw.toString()}、decimals ${token.decimals}）`;
     };
 
-    if (functionName === "deposit" || functionName === "withdraw" || (functionName === "swapExactUSDCForTKN" && args["amountOutMinRaw"] !== undefined)) {
-      // 同じエンジンを複製して予測。残高不足時に負の予測値を表示しない。
-      const previewEngine = new Engine(this.engine.config);
-      previewEngine.state = deserializeState(serializeState(state));
-      const result = previewEngine.write(functionName, contract, args);
-      if (result.kind === "success") {
-        for (const diff of result.record.stateDiff) {
-          diffs.push({
-            label: diff.kind === "eth" ? "疑似ETH（valueの移動とガス代を含む）" : diff.kind === "allowance" ? "allowance（DEXへの承認量）" : `${tokenOf(diff.token ?? contract)?.symbol ?? ""}残高`,
-            before: diff.kind === "eth" ? `${formatUnits(BigInt(diff.beforeRaw), 18)} ETH` : describe(diff.token ?? contract, BigInt(diff.beforeRaw)),
-            after: diff.kind === "eth" ? `${formatUnits(BigInt(diff.afterRaw), 18)} ETH` : describe(diff.token ?? contract, BigInt(diff.afterRaw)),
-          });
-        }
+    // 全Writeを実際の検査と同じ経路で予測する。元の状態・ログ・進捗には触れない。
+    const previewEngine = new Engine(this.engine.config);
+    previewEngine.state = deserializeState(serializeState(state));
+    const result = previewEngine.write(functionName as WriteFunctionName, contract, args);
+    if (result.kind !== "success") {
+      if (result.kind === "preflight-failure") {
+        warning = `${result.message}（送信されず、残高・allowance・ガス代は変わりません）`;
       } else {
-        warning = result.kind === "preflight-failure" ? result.message : `revert予測：${revertMessage(result.record.revertReason as RevertCode)}（ガス代のみ消費）`;
+        const code = result.record.revertReason as RevertCode;
+        const reason = this.def.functions.find(fn => fn.name === functionName)?.revertReasons?.find(r => r.code === code)?.message
+          ?? revertMessage(code);
+        warning = `revert予測：${reason}（トークン残高・allowanceは変わらず、ガス代のみ消費します）`;
+      }
+    } else if (functionName === "deposit" || functionName === "withdraw" || (functionName === "swapExactUSDCForTKN" && args["amountOutMinRaw"] !== undefined)) {
+      for (const diff of result.record.stateDiff) {
+        diffs.push({
+          label: diff.kind === "eth" ? "疑似ETH（valueの移動とガス代を含む）" : diff.kind === "allowance" ? "allowance（DEXへの承認量）" : `${tokenOf(diff.token ?? contract)?.symbol ?? ""}残高`,
+          before: diff.kind === "eth" ? `${formatUnits(BigInt(diff.beforeRaw), 18)} ETH` : describe(diff.token ?? contract, BigInt(diff.beforeRaw)),
+          after: diff.kind === "eth" ? `${formatUnits(BigInt(diff.afterRaw), 18)} ETH` : describe(diff.token ?? contract, BigInt(diff.afterRaw)),
+        });
       }
     } else if (functionName === "approve") {
       const spender = args["spender"] ?? "";
@@ -334,44 +340,13 @@ export class PlaySession {
   // --- 手順チェックリスト（設計書 3.2：達成判定はpassConditionとは別にtxLog・callLogから導く） ---
 
   checklist(): ChecklistItem[] {
-    const state = this.engine.state;
-    type Op = { kind: "read" | "write"; functionName: string };
-    // 成功した操作だけを sequence 順の時系列にする（ReadはcallLog、Writeはstatus=1のtxLog）
-    const timeline: Op[] = [
-      ...state.callLog
-        .filter((r) => r.attemptId === state.attemptId)
-        .map((r) => ({ sequence: r.sequence, op: { kind: "read" as const, functionName: r.functionName } })),
-      ...state.txLog
-        .filter((r) => r.attemptId === state.attemptId && r.status === 1)
-        .map((r) => ({ sequence: r.sequence, op: { kind: "write" as const, functionName: r.functionName } })),
-    ]
-      .sort((a, b) => a.sequence - b.sequence)
-      .map((s) => s.op);
-    const hasRevert = state.txLog.some((r) => r.attemptId === state.attemptId && r.status === 0);
-
-    let pointer = 0;
-    const consume = (kind: "read" | "write", functionName: string): boolean => {
-      for (let i = pointer; i < timeline.length; i++) {
-        const op = timeline[i] as Op;
-        if (op.kind === kind && op.functionName === functionName) {
-          pointer = i + 1;
-          return true;
-        }
-      }
-      return false;
-    };
-
-    return this.def.steps.map((text) => {
-      const optional = text.includes("（発展）");
-      if (optional) return { text, done: hasRevert, optional };
-      if (text.includes("クイズ")) {
-        const questions = this.def.questions ?? [];
-        const done = questions.length > 0 && questions.every((q) => this.isQuizCorrect(q.questionId));
-        return { text, done, optional };
-      }
-      const target = checklistTarget(text);
-      if (!target) return { text, done: this.evaluation.passed, optional };
-      return { text, done: consume(target.kind, target.functionName), optional };
+    return this.def.steps.map((text, index) => {
+      const check = this.def.stepChecks[index];
+      return {
+        text,
+        optional: check?.optional ?? false,
+        done: check !== undefined && checklistConditionMet(this.def, this.state, check.condition, id => this.isQuizCorrect(id)),
+      };
     });
   }
 
@@ -414,21 +389,4 @@ export class PlaySession {
     this.wasPassed = this.evaluation.passed;
     return { evaluation: this.evaluation, clear };
   }
-}
-
-/** 手順文から、対応する操作（種類＋関数名）を推定する */
-function checklistTarget(text: string): { kind: "read" | "write"; functionName: string } | null {
-  if (text.includes("deposit")) return { kind: "write", functionName: "deposit" };
-  if (text.includes("withdraw")) return { kind: "write", functionName: "withdraw" };
-  if (text.includes("getAmountsOut")) return { kind: "read", functionName: "getAmountsOut" };
-  if (text.includes("swap") || text.includes("交換する")) {
-    return { kind: "write", functionName: "swapExactUSDCForTKN" };
-  }
-  if (text.includes("approve")) return { kind: "write", functionName: "approve" };
-  if (text.includes("transferFrom")) return { kind: "write", functionName: "transferFrom" };
-  if (text.includes("transfer")) return { kind: "write", functionName: "transfer" };
-  if (text.includes("allowance")) return { kind: "read", functionName: "allowance" };
-  if (text.includes("balanceOf") || text.includes("残高")) return { kind: "read", functionName: "balanceOf" };
-  if (text.includes("decimals")) return { kind: "read", functionName: "decimals" };
-  return null;
 }
