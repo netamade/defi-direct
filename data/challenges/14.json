@@ -1,0 +1,421 @@
+{
+  "schemaVersion": 1,
+  "id": "14",
+  "title": "Merkleエアドロップを請求する",
+  "subtitle": "Merkleエアドロップを請求する",
+  "chapter": {
+    "bookChapter": 22,
+    "bookTitle": "Merkleエアドロップを請求する",
+    "section": "本の課題22-1"
+  },
+  "difficulty": 3,
+  "estimatedMinutes": 20,
+  "xp": 250,
+  "badges": [],
+  "forbiddenActions": [],
+  "gas": {
+    "claim": {
+      "gasUsed": 120000,
+      "gasPriceGwei": 20
+    }
+  },
+  "retryMessage": "手順とログを確認して、もう一度挑戦しよう。",
+  "goal": "proofが送信者・金額とセットで検証されることを確かめる。",
+  "scenario": "公開配布リストから自分のproofを選んで請求します。あなたはC（0x3333…）で、割当は75 AIRです。Aのproofを使った誤りと二重請求も体験しましょう。",
+  "steps": [
+    "自分のAIR残高0を確認する",
+    "isClaimedで自分が未請求（false）と確認する",
+    "Aのproofでclaim(75)を試しINVALID_PROOFを体験する",
+    "Cのproofでclaim(75)を成功させる",
+    "自分のAIR残高75を確認する",
+    "isClaimedで請求済み（true）と確認する",
+    "もう一度claim(75)を試しALREADY_CLAIMEDを体験する"
+  ],
+  "hints": [
+    "配布リストは公開情報です。自分Cの金額とproofを選ぼう。",
+    "proofは2行をそのまま入力し、amountは表示値75です。",
+    "同じ請求は再利用できません。isClaimedも確認しよう。"
+  ],
+  "successMessage": "自分の割当の証明と二重請求の防止を確認できたね！",
+  "contracts": [
+    {
+      "address": "0x9999999999999999999999999999999999999999",
+      "name": "Practice AIR",
+      "symbol": "AIR",
+      "decimals": 6,
+      "label": "練習用AIR",
+      "isPractice": true
+    }
+  ],
+  "initialState": {
+    "userAddress": "0x3333333333333333333333333333333333333333",
+    "spenderAddresses": {
+      "distributor": "0x8888888888888888888888888888888888888888"
+    },
+    "ethBalanceWei": "1000000000000000000",
+    "balances": {
+      "0x9999999999999999999999999999999999999999": {
+        "0x3333333333333333333333333333333333333333": "0",
+        "0x8888888888888888888888888888888888888888": "925000000"
+      }
+    },
+    "allowances": {}
+  },
+  "functions": [
+    {
+      "name": "balanceOf",
+      "kind": "read",
+      "description": "balanceOf",
+      "inputs": [
+        {
+          "name": "account",
+          "type": "address",
+          "description": "account（表示値）"
+        }
+      ]
+    },
+    {
+      "name": "isClaimed",
+      "kind": "read",
+      "description": "isClaimed",
+      "inputs": [
+        {
+          "name": "account",
+          "type": "address",
+          "description": "account（表示値）"
+        }
+      ]
+    },
+    {
+      "name": "claim",
+      "kind": "write",
+      "description": "自分の割当をproofで証明して請求する。",
+      "inputs": [
+        {
+          "name": "amount",
+          "type": "uint256",
+          "description": "自分の割当をproofで証明して請求する。"
+        },
+        {
+          "name": "proof",
+          "type": "bytes32[]",
+          "description": "自分の割当をproofで証明して請求する。"
+        }
+      ],
+      "revertReasons": [
+        {
+          "code": "ALREADY_CLAIMED",
+          "message": "このエアドロップは請求済みだよ。"
+        },
+        {
+          "code": "INVALID_PROOF",
+          "message": "送信者・金額・proofがルートと一致しないよ。"
+        },
+        {
+          "code": "INSUFFICIENT_BALANCE",
+          "message": "配布元の残高が足りないよ。"
+        }
+      ]
+    }
+  ],
+  "airdrop": {
+    "distributor": "0x8888888888888888888888888888888888888888",
+    "token": "0x9999999999999999999999999999999999999999",
+    "root": "0xba6e7cc2629ce6911cf1e06337a7a4ed024d02d87508cb223cbc875a1beffc54",
+    "distribution": [
+      {
+        "label": "A",
+        "address": "0x1111111111111111111111111111111111111111",
+        "amount": "100"
+      },
+      {
+        "label": "B",
+        "address": "0x2222222222222222222222222222222222222222",
+        "amount": "250"
+      },
+      {
+        "label": "C",
+        "address": "0x3333333333333333333333333333333333333333",
+        "amount": "75"
+      },
+      {
+        "label": "D",
+        "address": "0x4444444444444444444444444444444444444444",
+        "amount": "500"
+      }
+    ],
+    "publicProofs": [
+      {
+        "label": "A（誤り体験用）",
+        "proof": [
+          "0x526cad0af1dda06f7f5688e7b654b6d6395cb3904c818c16bb7b53fac7d1b881",
+          "0x7672f629b84ea7636bb85953a21640b26992fd0e41acddae02111ec9f3d59c07"
+        ]
+      },
+      {
+        "label": "C（あなたの割当）",
+        "proof": [
+          "0x70abacda97f1a3255e287fb4d34bc282953408c8635f75cd9f4d68defc498b57",
+          "0x4c0e3b6731a0177b5c4e4ecbddf93f958476bd2f4958afb8e2d855984d869160"
+        ]
+      }
+    ]
+  },
+  "questions": [
+    {
+      "questionId": "q14",
+      "kind": "choice",
+      "prompt": "他人のproofでは自分の請求が通らないのはなぜ？",
+      "options": [
+        {
+          "optionId": "price",
+          "label": "proofは誰の・いくらの請求かとセットで検証されるから"
+        },
+        {
+          "optionId": "wrong",
+          "label": "proofは全員で共通だから"
+        }
+      ],
+      "correctOptionId": "price"
+    }
+  ],
+  "passCondition": {
+    "op": "and",
+    "conditions": [
+      {
+        "type": "actionSequence",
+        "sequence": [
+          {
+            "functionName": "balanceOf",
+            "kind": "read",
+            "contract": "0x9999999999999999999999999999999999999999",
+            "args": {
+              "account": "user"
+            },
+            "returnRaw": "0"
+          },
+          {
+            "functionName": "isClaimed",
+            "kind": "read",
+            "contract": "0x8888888888888888888888888888888888888888",
+            "args": {
+              "account": "user"
+            },
+            "returnRaw": "false"
+          },
+          {
+            "functionName": "claim",
+            "kind": "write",
+            "contract": "0x8888888888888888888888888888888888888888",
+            "args": {
+              "amountRaw": "75000000",
+              "proof": "[\"0x526cad0af1dda06f7f5688e7b654b6d6395cb3904c818c16bb7b53fac7d1b881\",\"0x7672f629b84ea7636bb85953a21640b26992fd0e41acddae02111ec9f3d59c07\"]"
+            },
+            "status": 0
+          },
+          {
+            "functionName": "claim",
+            "kind": "write",
+            "contract": "0x8888888888888888888888888888888888888888",
+            "args": {
+              "amountRaw": "75000000",
+              "proof": "[\"0x70abacda97f1a3255e287fb4d34bc282953408c8635f75cd9f4d68defc498b57\",\"0x4c0e3b6731a0177b5c4e4ecbddf93f958476bd2f4958afb8e2d855984d869160\"]"
+            }
+          },
+          {
+            "functionName": "balanceOf",
+            "kind": "read",
+            "contract": "0x9999999999999999999999999999999999999999",
+            "args": {
+              "account": "user"
+            },
+            "returnRaw": "75000000"
+          },
+          {
+            "functionName": "isClaimed",
+            "kind": "read",
+            "contract": "0x8888888888888888888888888888888888888888",
+            "args": {
+              "account": "user"
+            },
+            "returnRaw": "true"
+          },
+          {
+            "functionName": "claim",
+            "kind": "write",
+            "contract": "0x8888888888888888888888888888888888888888",
+            "args": {
+              "amountRaw": "75000000"
+            },
+            "status": 0
+          }
+        ]
+      },
+      {
+        "type": "actionFailed",
+        "functionName": "claim",
+        "revertCode": "INVALID_PROOF"
+      },
+      {
+        "type": "actionFailed",
+        "functionName": "claim",
+        "revertCode": "ALREADY_CLAIMED"
+      },
+      {
+        "type": "balanceEquals",
+        "token": "0x9999999999999999999999999999999999999999",
+        "account": "user",
+        "expectedDisplay": "75",
+        "expectedRaw": "75000000"
+      },
+      {
+        "type": "quizCorrect",
+        "questionId": "q14"
+      }
+    ]
+  },
+  "stepChecks": [
+    {
+      "condition": {
+        "type": "actionSequence",
+        "sequence": [
+          {
+            "functionName": "balanceOf",
+            "kind": "read",
+            "contract": "0x9999999999999999999999999999999999999999",
+            "args": {
+              "account": "user"
+            },
+            "returnRaw": "0"
+          }
+        ]
+      }
+    },
+    {
+      "condition": {
+        "type": "actionSequence",
+        "sequence": [
+          {
+            "functionName": "isClaimed",
+            "kind": "read",
+            "contract": "0x8888888888888888888888888888888888888888",
+            "args": {
+              "account": "user"
+            },
+            "returnRaw": "false"
+          }
+        ]
+      }
+    },
+    {
+      "condition": {
+        "type": "actionSequence",
+        "sequence": [
+          {
+            "functionName": "claim",
+            "kind": "write",
+            "contract": "0x8888888888888888888888888888888888888888",
+            "args": {
+              "amountRaw": "75000000",
+              "proof": "[\"0x526cad0af1dda06f7f5688e7b654b6d6395cb3904c818c16bb7b53fac7d1b881\",\"0x7672f629b84ea7636bb85953a21640b26992fd0e41acddae02111ec9f3d59c07\"]"
+            },
+            "status": 0,
+            "revertCode": "INVALID_PROOF"
+          }
+        ]
+      }
+    },
+    {
+      "condition": {
+        "type": "actionSequence",
+        "sequence": [
+          {
+            "functionName": "claim",
+            "kind": "write",
+            "contract": "0x8888888888888888888888888888888888888888",
+            "args": {
+              "amountRaw": "75000000",
+              "proof": "[\"0x70abacda97f1a3255e287fb4d34bc282953408c8635f75cd9f4d68defc498b57\",\"0x4c0e3b6731a0177b5c4e4ecbddf93f958476bd2f4958afb8e2d855984d869160\"]"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "condition": {
+        "type": "actionSequence",
+        "sequence": [
+          {
+            "functionName": "claim",
+            "kind": "write",
+            "contract": "0x8888888888888888888888888888888888888888",
+            "args": {
+              "amountRaw": "75000000",
+              "proof": "[\"0x70abacda97f1a3255e287fb4d34bc282953408c8635f75cd9f4d68defc498b57\",\"0x4c0e3b6731a0177b5c4e4ecbddf93f958476bd2f4958afb8e2d855984d869160\"]"
+            }
+          },
+          {
+            "functionName": "balanceOf",
+            "kind": "read",
+            "contract": "0x9999999999999999999999999999999999999999",
+            "args": {
+              "account": "user"
+            },
+            "returnRaw": "75000000"
+          }
+        ]
+      }
+    },
+    {
+      "condition": {
+        "type": "actionSequence",
+        "sequence": [
+          {
+            "functionName": "claim",
+            "kind": "write",
+            "contract": "0x8888888888888888888888888888888888888888",
+            "args": {
+              "amountRaw": "75000000",
+              "proof": "[\"0x70abacda97f1a3255e287fb4d34bc282953408c8635f75cd9f4d68defc498b57\",\"0x4c0e3b6731a0177b5c4e4ecbddf93f958476bd2f4958afb8e2d855984d869160\"]"
+            }
+          },
+          {
+            "functionName": "balanceOf",
+            "kind": "read",
+            "contract": "0x9999999999999999999999999999999999999999",
+            "args": {
+              "account": "user"
+            },
+            "returnRaw": "75000000"
+          },
+          {
+            "functionName": "isClaimed",
+            "kind": "read",
+            "contract": "0x8888888888888888888888888888888888888888",
+            "args": {
+              "account": "user"
+            },
+            "returnRaw": "true"
+          }
+        ]
+      }
+    },
+    {
+      "condition": {
+        "type": "actionSequence",
+        "sequence": [
+          {
+            "functionName": "claim",
+            "kind": "write",
+            "contract": "0x8888888888888888888888888888888888888888",
+            "args": {
+              "amountRaw": "75000000"
+            },
+            "status": 0,
+            "revertCode": "ALREADY_CLAIMED"
+          }
+        ]
+      }
+    }
+  ]
+}

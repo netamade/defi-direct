@@ -41,6 +41,8 @@ describe("スキーマ凍結", () => {
         "allowances",
         "txLog",
         "callLog",
+        "flags",
+        "permitNonces",
       ].sort(),
     );
   });

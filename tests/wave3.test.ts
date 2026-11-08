@@ -54,3 +54,36 @@ describe("E4 vault",()=>{
   });
   it("設定のない課題ではvault Readは無効",()=>expect(session("01").doRead("totalAssets",A).result.ok).toBe(false));
 });
+const C="0x"+"3".repeat(40), D="0x"+"8".repeat(40), T="0x"+"9".repeat(40);
+const proofA=JSON.stringify(["0x526cad0af1dda06f7f5688e7b654b6d6395cb3904c818c16bb7b53fac7d1b881","0x7672f629b84ea7636bb85953a21640b26992fd0e41acddae02111ec9f3d59c07"]);
+const proofC=JSON.stringify(["0x70abacda97f1a3255e287fb4d34bc282953408c8635f75cd9f4d68defc498b57","0x4c0e3b6731a0177b5c4e4ecbddf93f958476bd2f4958afb8e2d855984d869160"]);
+function claim(s: PlaySession, proof=proofC,amountRaw="75000000") {return s.executeWrite("claim",D,{amountRaw,proof}).result;}
+function solve14(s: PlaySession) {
+  s.doRead("balanceOf",T,{account:C}); s.doRead("isClaimed",D,{account:C});
+  claim(s,proofA); claim(s); s.doRead("balanceOf",T,{account:C}); s.doRead("isClaimed",D,{account:C}); claim(s);
+  return s.answerQuiz("q14","price");
+}
+describe("E5 airdrop",()=>{
+  it("誤proof→正常→二重請求と全stepChecks、250 XP、リセット",()=>{
+    const s=session("14"); expect(solve14(s).clear?.awardedXp).toBe(250);
+    expect(s.state.txLog.map(t=>t.revertReason)).toEqual(["INVALID_PROOF",undefined,"ALREADY_CLAIMED"]);
+    expect(s.checklist().every(c=>c.done)).toBe(true); expect(s.state.flags[`claimed:${D}`]).toBe(true);
+    expect(s.engine.getBalance(T,C)).toBe(75000000n); expect(s.engine.getBalance(T,D)).toBe(850000000n);
+    s.reset(); expect(s.state.flags).toEqual({}); solve14(s); expect(s.progress.totalXp).toBe(250);
+  });
+  it.each([proofA,"[]","[",'["invalid"]'])("invalid proof %s only burns gas",proof=>{
+    const s=session("14"), before=serializeState(s.state);
+    expect(claim(s,proof).kind).toBe("revert"); expect(s.state.flags).toEqual({});
+    expect(serializeState(s.state).tokens).toEqual(before.tokens); expect(s.state.blockNumber).toBe(1);
+  });
+  it("amount is part of leaf; already-claimed validation precedes proof",()=>{
+    const s=session("14"); claim(s,proofC,"75000001"); expect(s.state.txLog[0]!.revertReason).toBe("INVALID_PROOF");
+    claim(s); claim(s,"[]"); expect(s.state.txLog[2]!.revertReason).toBe("ALREADY_CLAIMED");
+  });
+  it("claim preview is read-only, predicts failure and AIR credit",()=>{
+    const s=session("14"),before=serializeState(s.state);
+    expect(s.previewWrite("claim",D,{amountRaw:"75000000",proof:proofA}).warning).toContain("revert");
+    expect(s.previewWrite("claim",D,{amountRaw:"75000000",proof:proofC}).diffs.some(d=>d.after.includes("75 AIR"))).toBe(true);
+    expect(serializeState(s.state)).toEqual(before);
+  });
+});

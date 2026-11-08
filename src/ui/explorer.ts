@@ -1,3 +1,4 @@
+import { parseBytes32Array } from "../engine/keccak";
 // 疑似エクスプローラー（設計書 第1節 S-05〜S-07）
 // - S-05 Read Contract タブ：状態を変えない読み取り。成功したReadはcallLogに残り採点の証拠になる。
 // - S-06 Write Contract タブ：送信前確認モーダル必須。forbiddenAction は block / warn のガード。
@@ -20,6 +21,7 @@ import { openModal, showToast } from "./feedback";
 import type { ActionOutcome, PlaySession, WritePreview } from "./session";
 
 const READ_FUNCTIONS: { name: ReadFunctionName; signature: string; fallbackDescription: string }[] = [
+  { name: "isClaimed", signature: "isClaimed(address account)", fallbackDescription: "自分の請求済み状態を返す" },
   { name: "totalAssets", signature: "totalAssets()", fallbackDescription: "ボールトの現在の残高から換算する" },
   { name: "convertToShares", signature: "convertToShares(uint256 assets)", fallbackDescription: "ボールトの現在の残高から換算する" },
   { name: "convertToAssets", signature: "convertToAssets(uint256 shares)", fallbackDescription: "ボールトの現在の残高から換算する" },
@@ -257,7 +259,7 @@ export class ExplorerView {
     body.append(text("p", defFn?.description ?? fn.fallbackDescription, "function-desc"));
 
     const selects = new Map<string, HTMLSelectElement>();
-    if (fn.name === "balanceOf") {
+    if (fn.name === "balanceOf" || fn.name === "isClaimed") {
       const label = el("label", "field-label", ["account（残高を調べるアドレス）"]);
       const select = this.addressSelect(this.addressOptions(false), this.session.userAddress);
       selects.set("account", select);
@@ -321,6 +323,7 @@ export class ExplorerView {
           args[toShares ? "assetsRaw" : "sharesRaw"] = checked.value.toString();
         }
       }
+      if (fn.name === "isClaimed" && this.session.def.airdrop) contract = this.session.def.airdrop.distributor;
       const { result, ...outcome } = this.session.doRead(fn.name, contract, args);
       if (result.ok) {
         const line = this.formatReadResult(fn.name, result.valueDisplay, result.record);
@@ -349,7 +352,7 @@ export class ExplorerView {
   private formatReadResult(functionName: string, valueDisplay: string, record: CallRecord): string {
     const token = this.session.state.tokens[this.readResultToken(record.functionName, record.contract)];
     if (!token) return `${functionName} → ${valueDisplay}`;
-    if (functionName === "name" || functionName === "symbol" || functionName === "decimals") {
+    if (functionName === "name" || functionName === "symbol" || functionName === "decimals" || functionName === "isClaimed") {
       return `${functionName} → ${valueDisplay}`;
     }
     return `${functionName} → ${amountTriple(BigInt(record.returnValueRaw || "0"), token.decimals, token.symbol)}`;
@@ -405,6 +408,10 @@ export class ExplorerView {
       if (name === "value") return { decimals: 18, symbol: "ETH" };
       if (this.session.def.vault) {
         const token = this.session.state.tokens[name === "assets" ? this.session.def.vault.asset : this.session.def.vault.shareToken]!;
+        return { decimals: token.decimals, symbol: token.symbol };
+      }
+      if (this.session.def.airdrop && fn.name === "claim") {
+        const token = this.session.state.tokens[this.session.def.airdrop.token]!;
         return { decimals: token.decimals, symbol: token.symbol };
       }
       const address = isSwap ? ((name === "amountOutMin" ? this.session.def.swap?.tokenOut : this.session.def.swap?.tokenIn) ?? "") : this.writeContract;
@@ -468,13 +475,20 @@ export class ExplorerView {
       }
     }
 
+    const proofInputs = new Map<string, HTMLTextAreaElement>();
+    for (const input of fn.inputs.filter(i => i.type === "bytes32[]")) {
+      const label = el("label", "field-label", [`${input.name}（改行区切りのbytes32[]）`]);
+      const area = document.createElement("textarea");
+      area.className = "input-text"; area.rows = 4;
+      proofInputs.set(input.name, area); label.append(area); item.append(label);
+    }
     const writeButton = document.createElement("button");
     writeButton.type = "button";
     writeButton.className = "btn btn-primary";
     writeButton.textContent = "Write（送信前の確認へ）";
     writeButton.addEventListener("click", () => {
       errorBox.hidden = true;
-      this.startWrite(fn, addressSelects, amountInputs, errorBox);
+      this.startWrite(fn, addressSelects, amountInputs, errorBox, proofInputs);
     });
     item.append(writeButton, errorBox);
     return item;
@@ -485,6 +499,7 @@ export class ExplorerView {
     addressSelects: Map<string, HTMLSelectElement>,
     amountInputs: Map<string, HTMLInputElement>,
     errorBox: HTMLElement,
+    proofInputs: Map<string, HTMLTextAreaElement>,
   ): void {
     const showError = (message: string) => {
       errorBox.textContent = message;
@@ -494,6 +509,9 @@ export class ExplorerView {
     const args: Record<string, string> = {};
     let contract: Address = this.writeContract;
 
+    for (const [name, input] of proofInputs) {
+      try { args[name] = JSON.stringify(parseBytes32Array(input.value)); } catch (error) { showError((error as Error).message); return; }
+    }
     for (const input of fn.inputs) {
       if (input.type === "address") {
         const select = addressSelects.get(input.name);
@@ -506,7 +524,7 @@ export class ExplorerView {
       }
     }
     for (const [name, input] of amountInputs) {
-      const tokenAddress = this.session.def.vault ? (name === "assets" ? this.session.def.vault.asset : this.session.def.vault.shareToken) : isSwap
+      const tokenAddress = this.session.def.vault ? (name === "assets" ? this.session.def.vault.asset : this.session.def.vault.shareToken) : this.session.def.airdrop && fn.name === "claim" ? this.session.def.airdrop.token : isSwap
         ? (name === "amountOutMin" ? this.session.def.swap?.tokenOut : this.session.def.swap?.tokenIn)
         : this.writeContract;
       const decimals = name === "value" ? 18 : (this.session.state.tokens[tokenAddress ?? ""]?.decimals ?? 18);
@@ -515,6 +533,7 @@ export class ExplorerView {
       args[`${name}Raw`] = checked.value.toString();
     }
     if (this.session.def.vault && (fn.name === "deposit" || fn.name === "redeem")) contract = this.session.def.vault.shareToken;
+    if (fn.name === "claim" && this.session.def.airdrop) contract = this.session.def.airdrop.distributor;
     if (isSwap) {
       contract = this.session.engine.config.swap?.dexAddress ?? contract;
     }
@@ -628,7 +647,7 @@ export class ExplorerView {
       box.append(
         text(
           "p",
-          token && record.functionName !== "name" && record.functionName !== "symbol" && record.functionName !== "decimals"
+          token && record.functionName !== "name" && record.functionName !== "symbol" && record.functionName !== "decimals" && record.functionName !== "isClaimed"
             ? amountTriple(BigInt(record.returnValueRaw || "0"), token.decimals, token.symbol)
             : `返却値：${record.returnValueDisplay}`,
         ),

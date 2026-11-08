@@ -103,6 +103,14 @@
       "title": "ERC-4626ボールト入門",
       "bookChapter": 16,
       "xp": 250
+    },
+    {
+      "id": "14",
+      "order": 14,
+      "file": "14.json",
+      "title": "Merkleエアドロップを請求する",
+      "bookChapter": 22,
+      "xp": 250
     }
   ],
   "schemaVersion": 1

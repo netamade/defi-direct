@@ -299,6 +299,17 @@ export function validateChallengeDefinition(raw: unknown): { ok: boolean; errors
     }
   }
 
+  if (isRecord(initial)) {
+    const flags = initial["flags"], nonces = initial["permitNonces"];
+    if (flags !== undefined && (!isRecord(flags) || !Object.values(flags).every(v => typeof v === "boolean"))) errors.push("initialState.flags はbooleanのマップが必要です");
+    if (nonces !== undefined && (!isRecord(nonces) || !Object.entries(nonces).every(([k,v]) => isValidAddress(k) && Number.isSafeInteger(v) && Number(v) >= 0))) errors.push("initialState.permitNonces が不正です");
+  }
+  if (def["airdrop"] !== undefined) {
+    const drop = def["airdrop"];
+    const addresses = Array.isArray(contracts) ? contracts.filter(isRecord).map(c => c["address"]) : [];
+    if (!isRecord(drop) || !isValidAddress(String(drop["distributor"])) || !addresses.includes(drop["token"]) || !/^0x[0-9a-f]{64}$/i.test(String(drop["root"]))) errors.push("airdropの契約・トークン・rootが不正です");
+  }
+
   // 関数定義
   if (!Array.isArray(def["functions"])) {
     errors.push("functions がありません");

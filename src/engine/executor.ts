@@ -1,3 +1,4 @@
+import { verifyProof } from "./keccak";
 // 疑似実行エンジン（設計書 第2節）
 //
 // 原則（設計書 2.1）:
@@ -50,6 +51,7 @@ export interface EngineConfig {
   gas?: Record<string, GasConfig>;
   swapQuoteRate?: number | string; // 参考見積もり。省略時は実行レートと同じ
   swapRate?: number | string; // 表示値ベース。既定 1
+  airdrop?: { distributor: Address; token: Address; root: string };
   vault?: { asset: Address; shareToken: Address };
   swap?: SwapConfig;
 }
@@ -74,11 +76,13 @@ export function engineConfigFromChallenge(def: {
   gas?: Record<string, GasConfig>;
   swapQuoteRate?: number;
   swapRate?: number;
+  airdrop?: { distributor: Address; token: Address; root: string };
   vault?: { asset: Address; shareToken: Address };
   swap?: SwapFieldDefinition;
 }): EngineConfig {
   const config: EngineConfig = {
     challengeId: def.id,
+    ...(def.airdrop ? { airdrop: def.airdrop } : {}),
     ...(def.vault ? { vault: def.vault } : {}),
     contracts: def.contracts,
     initialState: def.initialState,
@@ -93,8 +97,8 @@ export function engineConfigFromChallenge(def: {
   return config;
 }
 
-export type ReadFunctionName = "name" | "symbol" | "decimals" | "totalSupply" | "balanceOf" | "allowance" | "getAmountsOut" | "totalAssets" | "convertToShares" | "convertToAssets" | "previewDeposit" | "previewRedeem";
-export type WriteFunctionName = "approve" | "transfer" | "transferFrom" | "deposit" | "redeem" | "withdraw" | "swapExactUSDCForTKN";
+export type ReadFunctionName = "name" | "symbol" | "decimals" | "totalSupply" | "balanceOf" | "allowance" | "getAmountsOut" | "isClaimed" | "totalAssets" | "convertToShares" | "convertToAssets" | "previewDeposit" | "previewRedeem";
+export type WriteFunctionName = "approve" | "transfer" | "transferFrom" | "deposit" | "claim" | "redeem" | "withdraw" | "swapExactUSDCForTKN";
 
 export type ReadResult =
   | { ok: true; record: CallRecord; valueRaw: bigint; valueDisplay: string }
@@ -145,7 +149,9 @@ export class Engine {
     const vault = this.config.vault;
     const vaultRead = ["totalAssets", "convertToShares", "convertToAssets", "previewDeposit", "previewRedeem"].includes(functionName);
     if (vaultRead && (!vault || contract !== vault.shareToken)) return { ok: false, code: "UNKNOWN_FUNCTION", message: "この課題・コントラクトではボールトReadは使えません" };
-    const token = functionName === "getAmountsOut"
+    const airdrop = this.config.airdrop;
+    if (functionName === "isClaimed" && (!airdrop || contract !== airdrop.distributor)) return { ok: false, code: "UNKNOWN_FUNCTION", message: "この契約ではisClaimedは使えません" };
+    const token = functionName === "isClaimed" ? this.state.tokens[airdrop!.token] : functionName === "getAmountsOut"
       ? (swap && contract === swap.dexAddress ? this.state.tokens[swap.tokenOut] : undefined)
       : this.state.tokens[contract];
     if (!token) {
@@ -156,6 +162,10 @@ export class Engine {
     let valueRaw: bigint;
     let valueDisplay: string;
     switch (functionName) {
+      case "isClaimed":
+        // この疑似モデルは現在の1ユーザーについて請求状態を持つ。
+        return this.recordStringRead(functionName, contract, args,
+          (args["account"] ?? "").toLowerCase() === this.currentUser().toLowerCase() && this.state.flags[`claimed:${contract.toLowerCase()}`] ? "true" : "false");
       case "totalAssets":
       case "convertToShares":
       case "convertToAssets":
@@ -338,6 +348,28 @@ export class Engine {
     const revert = (revertCode: RevertCode) => ({ revertCode, apply: () => [] as StateDiff[] });
 
     switch (functionName) {
+      case "claim": {
+        const drop = this.config.airdrop;
+        if (!drop || contract !== drop.distributor) throw new Error("この課題・契約ではclaimは使えません");
+        const key = `claimed:${drop.distributor.toLowerCase()}`;
+        if (this.state.flags[key]) return revert("ALREADY_CLAIMED");
+        const amount = BigInt(args["amountRaw"] ?? "0");
+        let proof: unknown;
+        try { proof = JSON.parse(args["proof"] ?? "[]"); } catch { return revert("INVALID_PROOF"); }
+        if (!Array.isArray(proof) || !proof.every(p => typeof p === "string") || !verifyProof(userAddress, amount, proof, drop.root)) return revert("INVALID_PROOF");
+        const balance = this.getBalance(drop.token, drop.distributor);
+        if (balance < amount) return revert("INSUFFICIENT_BALANCE");
+        return ok(() => {
+          const before = this.getBalance(drop.token, userAddress);
+          this.requireToken(drop.token).balances[drop.distributor] = balance - amount;
+          this.requireToken(drop.token).balances[userAddress] = before + amount;
+          this.state.flags[key] = true;
+          return [
+            { kind: "balance", token: drop.token, account: drop.distributor, beforeRaw: balance.toString(), afterRaw: (balance - amount).toString() },
+            { kind: "balance", token: drop.token, account: userAddress, beforeRaw: before.toString(), afterRaw: (before + amount).toString() },
+          ];
+        });
+      }
       case "redeem":
       case "deposit":
         if (this.config.vault) {
