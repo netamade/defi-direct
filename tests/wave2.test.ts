@@ -121,3 +121,89 @@ describe("E1 WETH", () => {
     expect(s.state.tokens[W]!.totalSupplyRaw).toBe(0n);
   });
 });
+const D="0x"+"4".repeat(40), T="0x"+"5".repeat(40);
+function solve12(s: PlaySession) {
+  s.doRead("getAmountsOut",D,{amountInRaw:"20000000"});
+  s.executeWrite("approve",C,{spender:D,amountRaw:"20000000"});
+  s.executeWrite("swapExactUSDCForTKN",D,{amountInRaw:"20000000",amountOutMinRaw:"20000000000000000000"});
+  s.executeWrite("swapExactUSDCForTKN",D,{amountInRaw:"20000000",amountOutMinRaw:"19000000000000000000"});
+  return s.doRead("balanceOf",T,{account:U});
+}
+describe("E3 amountOutMin", () => {
+  it("参考見積もり→承認→保護revert→成功の学習フローで250 XP", () => {
+    const s=session("12");
+    expect(solve12(s).clear?.awardedXp).toBe(250);
+    expect(s.evaluation.passed).toBe(true);
+    expect(s.engine.getBalance(C,U)).toBe(80000000n);
+    expect(s.engine.getBalance(T,U)).toBe(19000000000000000000n);
+    s.reset(); solve12(s); expect(s.progress.totalXp).toBe(250);
+  });
+  it("getAmountsOutは出力トークンのdecimalsで返し、callLog以外の状態を変えない", () => {
+    const s=session("12"), before=serializeState(s.state);
+    const r=s.doRead("getAmountsOut",D,{amountInRaw:"20000000"}).result;
+    expect(r.ok).toBe(true);
+    if(!r.ok) throw new Error("read");
+    expect(r.valueRaw).toBe(20000000000000000000n);
+    expect(r.valueDisplay).toBe("20");
+    expect(r.record.contract).toBe(D);
+    expect({...serializeState(s.state),callLog:[]}).toEqual(before);
+    expect(s.doRead("getAmountsOut",C,{amountInRaw:"1"}).result.ok).toBe(false);
+    expect(s.state.callLog).toHaveLength(1);
+  });
+  it("getAmountsOutは見積もりレート省略時に実行レートへフォールバック", () => {
+    const s=session("08");
+    const r=s.doRead("getAmountsOut",D,{amountInRaw:"20000000"}).result;
+    expect(r.ok && r.valueRaw).toBe(19000000000000000000n);
+  });
+  it("最低受取量が1 rawでも超過するとrevertし、残高・承認は不変", () => {
+    const s=session("12"); s.executeWrite("approve",C,{spender:D,amountRaw:"20000000"});
+    const before=serializeState(s.state);
+    const args={amountInRaw:"20000000",amountOutMinRaw:"19000000000000000001"};
+    const preview=s.previewWrite("swapExactUSDCForTKN",D,args);
+    expect(preview.warning).toContain("revert");
+    expect(preview.diffs).toEqual([]);
+    expect(serializeState(s.state)).toEqual(before);
+    const r=s.executeWrite("swapExactUSDCForTKN",D,args).result;
+    expect(r.kind).toBe("revert");
+    if(r.kind==="preflight-failure") throw new Error("preflight");
+    expect(r.record.revertReason).toBe("INSUFFICIENT_OUTPUT_AMOUNT");
+    expect(r.record.stateDiff).toEqual([]);
+    expect(serializeState(s.state).tokens).toEqual(before.tokens);
+    expect(serializeState(s.state).allowances).toEqual(before.allowances);
+    expect(s.state.accounts[U]!.nonce).toBe(2);
+    expect(s.state.blockNumber).toBe(before.blockNumber+1);
+    expect(s.state.accounts[U]!.ethBalanceWei).toBe(BigInt(before.accounts[U]!.ethBalanceWei)-BigInt(r.record.gasFeeWei));
+  });
+  it.each(["19000000000000000000","18999999999999999999","0"])("最低量%sなら成功", amountOutMinRaw => {
+    const s=session("12"); s.executeWrite("approve",C,{spender:D,amountRaw:"20000000"});
+    expect(s.executeWrite("swapExactUSDCForTKN",D,{amountInRaw:"20000000",amountOutMinRaw}).result.kind).toBe("success");
+  });
+  it("保護revertの体験を省くとクリアできない", () => {
+    const s=session("12");
+    s.doRead("getAmountsOut",D,{amountInRaw:"20000000"});
+    s.executeWrite("approve",C,{spender:D,amountRaw:"20000000"});
+    s.executeWrite("swapExactUSDCForTKN",D,{amountInRaw:"20000000",amountOutMinRaw:"19000000000000000000"});
+    s.doRead("balanceOf",T,{account:U});
+    expect(s.evaluation.passed).toBe(false);
+  });
+});
+describe("Wave 2 integration", () => {
+  it("全12課題が有効で合計2050 XP、対象外課題はない", () => {
+    expect(data.invalid).toEqual([]); expect(data.problems).toEqual([]);
+    expect(data.challenges.map(c=>c.id)).toEqual(Array.from({length:12},(_,i)=>String(i+1).padStart(2,"0")));
+    expect(data.totalXp).toBe(2050);
+  });
+  it("新課題650 XPを同じ進捗に加算でき、保存復元しても二重付与しない", () => {
+    const map=new Map<string,string>();
+    const storage: StorageLike={getItem:k=>map.get(k)??null,setItem:(k,v)=>{map.set(k,v);},removeItem:k=>{map.delete(k);}};
+    const progress=new ProgressStore(storage,()=>data.totalXp), sim=new SimulationStore(storage);
+    for(const [id,solve] of [["10",solve10],["11",solve11],["12",solve12]] as const) {
+      const s=new PlaySession(data,data.byId.get(id)!,progress,sim); solve(s);
+      expect(s.evaluation.passed).toBe(true);
+      const restored=new PlaySession(data,data.byId.get(id)!,progress,sim);
+      expect(serializeState(restored.state)).toEqual(serializeState(s.state));
+      expect(restored.alreadyCleared()).toBe(true);
+    }
+    expect(progress.load().state.totalXp).toBe(650);
+  });
+});

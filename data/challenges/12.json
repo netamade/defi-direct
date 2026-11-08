@@ -1,0 +1,252 @@
+{
+  "schemaVersion": 1,
+  "id": "12",
+  "title": "amountOutMinで守るswap",
+  "subtitle": "amountOutMinで守るswap",
+  "chapter": {
+    "bookChapter": 15,
+    "bookTitle": "swap",
+    "section": "本の課題15-1・15-2"
+  },
+  "difficulty": 3,
+  "estimatedMinutes": 20,
+  "xp": 250,
+  "badges": [],
+  "forbiddenActions": [],
+  "gas": {
+    "approve": {
+      "gasPriceGwei": 20,
+      "gasUsed": 45000
+    },
+    "swapExactUSDCForTKN": {
+      "gasPriceGwei": 20,
+      "gasUsed": 120000
+    }
+  },
+  "retryMessage": "手順とログを確かめて、リセットしてもう一度挑戦してみよう。",
+  "goal": "参考見積もりと実行結果の差を確認し、amountOutMinで不利な約定を止める。",
+  "scenario": "20 USDCを交換します。この疑似DEXの参考見積もりは1 USDC = 1 TKN、実行レートは0.95です。getAmountsOutは固定ペアの最終受取量だけを返す簡略版です。見積もりは約定の保証ではありません。最低受取量20 TKNではrevertし、19 TKNなら成功します。レートはこの課題では固定です。",
+  "steps": [
+    "getAmountsOutで20 USDCの参考見積もりを読む",
+    "approveでDEXに20 USDCの使用を許可する",
+    "swapのamountInを20、amountOutMinを20にしてrevertを確認する",
+    "swapのamountInを20、amountOutMinを19にして交換する",
+    "balanceOfで受取量19 TKNを確認する"
+  ],
+  "hints": [
+    "getAmountsOutの入力はUSDCの表示値。結果はTKNのraw値と表示値で返るよ。",
+    "amountInはUSDC（6桁）、amountOutMinはTKN（18桁）で換算するよ。",
+    "revertでもガス代は使うけれど、USDCとallowanceは減らないよ。最低量を19にして再送しよう。"
+  ],
+  "successMessage": "最低受取量で不利な交換を止められたね！見積もりと約定の違いを確かめたよ。",
+  "contracts": [
+    {
+      "address": "0x2222222222222222222222222222222222222222",
+      "decimals": 6,
+      "isPractice": true,
+      "label": "練習用USDC",
+      "name": "Practice USD Coin",
+      "symbol": "USDC"
+    },
+    {
+      "address": "0x5555555555555555555555555555555555555555",
+      "decimals": 18,
+      "isPractice": true,
+      "label": "練習用TKN",
+      "name": "Practice Token",
+      "symbol": "TKN"
+    }
+  ],
+  "initialState": {
+    "allowances": {},
+    "balances": {
+      "0x2222222222222222222222222222222222222222": {
+        "0x1111111111111111111111111111111111111111": "100000000"
+      },
+      "0x5555555555555555555555555555555555555555": {
+        "0x1111111111111111111111111111111111111111": "0"
+      }
+    },
+    "ethBalanceWei": "1000000000000000000",
+    "spenderAddresses": {
+      "dex": "0x4444444444444444444444444444444444444444"
+    },
+    "userAddress": "0x1111111111111111111111111111111111111111"
+  },
+  "swap": {
+    "spenderKey": "dex",
+    "tokenIn": "0x2222222222222222222222222222222222222222",
+    "tokenOut": "0x5555555555555555555555555555555555555555"
+  },
+  "swapRate": 0.95,
+  "swapQuoteRate": 1,
+  "functions": [
+    {
+      "description": "指定アドレスの残高（raw値）を返す",
+      "inputs": [
+        {
+          "description": "残高を調べるアドレス",
+          "name": "account",
+          "type": "address"
+        }
+      ],
+      "kind": "read",
+      "name": "balanceOf"
+    },
+    {
+      "description": "ownerがspenderに承認した量（raw値）を返す",
+      "inputs": [
+        {
+          "description": "承認した人",
+          "name": "owner",
+          "type": "address"
+        },
+        {
+          "description": "承認された相手",
+          "name": "spender",
+          "type": "address"
+        }
+      ],
+      "kind": "read",
+      "name": "allowance"
+    },
+    {
+      "description": "疑似DEXへのUSDC使用許可を与える（上書き）",
+      "inputs": [
+        {
+          "description": "許可する相手（疑似DEX）",
+          "name": "spender",
+          "type": "address"
+        },
+        {
+          "description": "許可する量（表示値で入力）",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "kind": "write",
+      "name": "approve",
+      "revertReasons": [
+        {
+          "code": "ZERO_ADDRESS_SPENDER",
+          "message": "承認先にゼロアドレスは使えないよ。疑似DEXのアドレスを確かめてみよう。"
+        }
+      ]
+    },
+    {
+      "name": "getAmountsOut",
+      "kind": "read",
+      "description": "USDC→TKNの参考見積もり（最終受取量のみ）。見積もりレート1、実行レート0.95。",
+      "inputs": [
+        {
+          "name": "amountIn",
+          "type": "uint256",
+          "description": "支払うUSDC（表示値）"
+        }
+      ]
+    },
+    {
+      "name": "swapExactUSDCForTKN",
+      "kind": "write",
+      "description": "最低受取量を下回る交換はrevertする。",
+      "inputs": [
+        {
+          "name": "amountIn",
+          "type": "uint256",
+          "description": "支払うUSDC（表示値）"
+        },
+        {
+          "name": "amountOutMin",
+          "type": "uint256",
+          "description": "最低限受け取るTKN（表示値）"
+        }
+      ],
+      "revertReasons": [
+        {
+          "code": "INSUFFICIENT_ALLOWANCE",
+          "message": "DEXへの承認量が足りないよ。"
+        },
+        {
+          "code": "INSUFFICIENT_BALANCE",
+          "message": "USDC残高が足りないよ。"
+        },
+        {
+          "code": "INSUFFICIENT_OUTPUT_AMOUNT",
+          "message": "実際の受取量が最低受取量を下回るため止まったよ。"
+        }
+      ]
+    }
+  ],
+  "passCondition": {
+    "op": "and",
+    "conditions": [
+      {
+        "type": "actionSequence",
+        "sequence": [
+          {
+            "functionName": "getAmountsOut",
+            "kind": "read",
+            "args": {
+              "amountInRaw": "20000000"
+            },
+            "returnRaw": "20000000000000000000"
+          },
+          {
+            "functionName": "approve",
+            "kind": "write",
+            "args": {
+              "spender": "0x4444444444444444444444444444444444444444",
+              "amountRaw": "20000000"
+            },
+            "contract": "0x2222222222222222222222222222222222222222"
+          },
+          {
+            "functionName": "swapExactUSDCForTKN",
+            "kind": "write",
+            "args": {
+              "amountInRaw": "20000000",
+              "amountOutMinRaw": "20000000000000000000"
+            },
+            "status": 0
+          },
+          {
+            "functionName": "swapExactUSDCForTKN",
+            "kind": "write",
+            "args": {
+              "amountInRaw": "20000000",
+              "amountOutMinRaw": "19000000000000000000"
+            }
+          },
+          {
+            "functionName": "balanceOf",
+            "kind": "read",
+            "args": {
+              "account": "0x1111111111111111111111111111111111111111"
+            },
+            "contract": "0x5555555555555555555555555555555555555555",
+            "returnRaw": "19000000000000000000"
+          }
+        ]
+      },
+      {
+        "type": "actionFailed",
+        "functionName": "swapExactUSDCForTKN",
+        "revertCode": "INSUFFICIENT_OUTPUT_AMOUNT"
+      },
+      {
+        "type": "balanceEquals",
+        "token": "0x2222222222222222222222222222222222222222",
+        "account": "user",
+        "expectedDisplay": "80",
+        "expectedRaw": "80000000"
+      },
+      {
+        "type": "balanceEquals",
+        "token": "0x5555555555555555555555555555555555555555",
+        "account": "user",
+        "expectedDisplay": "19",
+        "expectedRaw": "19000000000000000000"
+      }
+    ]
+  }
+}
