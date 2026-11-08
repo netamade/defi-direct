@@ -67,3 +67,57 @@ describe("E2 transferFrom", () => {
     expect(serializeState(s.state)).toEqual(before);
   });
 });
+const W = "0x" + "a".repeat(40);
+function solve10(s: PlaySession) {
+  s.doRead("balanceOf",W,{account:U});
+  s.executeWrite("deposit",W,{valueRaw:"100000000000000000"});
+  s.doRead("balanceOf",W,{account:U});
+  s.executeWrite("withdraw",W,{amountRaw:"40000000000000000"});
+  return s.doRead("balanceOf",W,{account:U});
+}
+describe("E1 WETH", () => {
+  it("deposit→withdrawの学習フローで200 XP、ETHにはガス代も反映", () => {
+    const s=session("10");
+    expect(solve10(s).clear?.awardedXp).toBe(200);
+    expect(s.evaluation.passed).toBe(true);
+    expect(s.engine.getBalance(W,U)).toBe(60000000000000000n);
+    expect(s.state.tokens[W]!.totalSupplyRaw).toBe(60000000000000000n);
+    const fees=s.state.txLog.reduce((n,t)=>n+BigInt(t.gasFeeWei),0n);
+    expect(s.state.accounts[U]!.ethBalanceWei).toBe(1000000000000000000n-60000000000000000n-fees);
+    s.reset(); solve10(s); expect(s.progress.totalXp).toBe(200);
+  });
+  it("withdraw不足はrevert、WETHと供給量は不変、ETHはガスのみ控除", () => {
+    const s=session("10"), before=serializeState(s.state);
+    const r=s.executeWrite("withdraw",W,{amountRaw:"1"}).result;
+    expect(r.kind).toBe("revert");
+    if(r.kind==="preflight-failure") throw new Error("preflight");
+    expect(r.record.revertReason).toBe("INSUFFICIENT_BALANCE");
+    expect(serializeState(s.state).tokens).toEqual(before.tokens);
+    expect(s.state.accounts[U]!.ethBalanceWei).toBe(BigInt(before.accounts[U]!.ethBalanceWei)-BigInt(r.record.gasFeeWei));
+  });
+  it("depositのvalue＋ガスが不足すると未包含、ちょうど足りれば送信可能", () => {
+    const s=session("10"), before=serializeState(s.state);
+    expect(s.executeWrite("deposit",W,{valueRaw:"1000000000000000000"}).result.kind).toBe("preflight-failure");
+    expect(serializeState(s.state)).toEqual(before);
+    const fee=28000n*20n*1000000000n;
+    expect(s.executeWrite("deposit",W,{valueRaw:(1000000000000000000n-fee).toString()}).result.kind).toBe("success");
+    expect(s.state.accounts[U]!.ethBalanceWei).toBe(0n);
+  });
+  it("previewは実行結果と一致し、実状態は変更しない", () => {
+    const s=session("10");
+    for(const [name,args] of [["deposit",{valueRaw:"100000000000000000"}],["withdraw",{amountRaw:"40000000000000000"}]] as const) {
+      const before=serializeState(s.state), preview=s.previewWrite(name,W,args);
+      expect(serializeState(s.state)).toEqual(before);
+      s.executeWrite(name,W,args);
+      expect(preview.diffs[0]!.after).toContain(s.engine.getBalance(W,U).toString());
+      expect(preview.diffs[1]!.after).toBe(`${Number(s.state.accounts[U]!.ethBalanceWei)/1e18} ETH`);
+    }
+  });
+  it("0 valueと0 withdrawも成功し、供給量とWETH残高は変わらない", () => {
+    const s=session("10");
+    expect(s.executeWrite("deposit",W,{valueRaw:"0"}).result.kind).toBe("success");
+    expect(s.executeWrite("withdraw",W,{amountRaw:"0"}).result.kind).toBe("success");
+    expect(s.engine.getBalance(W,U)).toBe(0n);
+    expect(s.state.tokens[W]!.totalSupplyRaw).toBe(0n);
+  });
+});

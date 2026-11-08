@@ -26,6 +26,7 @@ export interface FunctionDefinition {
   kind: "read" | "write";
   description: string;
   inputs: FunctionInput[];
+  payable?: boolean; // ETH valueを送るWrite（状態スキーマには影響しない）
   revertReasons?: { code: string; message: string }[];
 }
 

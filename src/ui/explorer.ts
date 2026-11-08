@@ -359,6 +359,7 @@ export class ExplorerView {
     const isSwap = fn.name === "swapExactUSDCForTKN";
     // 対象コントラクトの切替に追従するため、decimals / symbol は都度引く
     const amountSpec = (): { decimals: number; symbol: string } => {
+      if (fn.payable) return { decimals: 18, symbol: "ETH" };
       const address = isSwap ? (this.session.def.swap?.tokenIn ?? "") : this.writeContract;
       const token = this.session.state.tokens[address];
       return { decimals: token?.decimals ?? 18, symbol: token?.symbol ?? "" };
@@ -381,7 +382,9 @@ export class ExplorerView {
 
     let amountInput: HTMLInputElement | null = null;
     let previewLine: HTMLElement | null = null;
-    const amountArg = fn.inputs.find((i) => i.type === "uint256");
+    const amountArg = fn.payable
+      ? { name: "value", description: "送るETH量（payable・表示値）", type: "uint256" }
+      : fn.inputs.find((i) => i.type === "uint256");
     if (amountArg) {
       const label = el("label", "field-label", [
         `${amountArg.name}（${amountArg.description}）`,
@@ -447,7 +450,7 @@ export class ExplorerView {
       errorBox.hidden = false;
     };
     const isSwap = fn.name === "swapExactUSDCForTKN";
-    const amountDecimals = isSwap
+    const amountDecimals = fn.payable ? 18 : isSwap
       ? (this.session.state.tokens[this.session.def.swap?.tokenIn ?? ""]?.decimals ?? 18)
       : (this.session.state.tokens[this.writeContract]?.decimals ?? 18);
     const args: Record<string, string> = {};
@@ -464,7 +467,9 @@ export class ExplorerView {
         args[input.name] = checked.value;
       }
     }
-    const amountArg = fn.inputs.find((i) => i.type === "uint256");
+    const amountArg = fn.payable
+      ? { name: "value", description: "送るETH量（payable・表示値）", type: "uint256" }
+      : fn.inputs.find((i) => i.type === "uint256");
     if (amountArg) {
       const checked = validateAmountInput(amountInput?.value ?? "", amountDecimals);
       if (!checked.ok) {
@@ -629,7 +634,7 @@ export class ExplorerView {
   private describeDiff(diff: TxRecord["stateDiff"][number]): string {
     const state = this.session.state;
     if (diff.kind === "eth") {
-      return `疑似ETH：${formatUnits(BigInt(diff.beforeRaw), 18)} ETH → ${formatUnits(BigInt(diff.afterRaw), 18)} ETH（ガス代）`;
+      return `疑似ETH：${formatUnits(BigInt(diff.beforeRaw), 18)} ETH → ${formatUnits(BigInt(diff.afterRaw), 18)} ETH（valueの移動とガス代を含む）`;
     }
     const token = diff.token ? state.tokens[diff.token] : undefined;
     if (!token) return `${diff.beforeRaw} → ${diff.afterRaw}`;

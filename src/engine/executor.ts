@@ -29,6 +29,8 @@ export interface GasConfig {
 
 /** 設計書 2.5 の既定ガス（すべて疑似値）。課題JSONの gas で上書きできる。 */
 export const DEFAULT_GAS: Record<string, GasConfig> = {
+  deposit: { gasUsed: 28_000, gasPriceGwei: 20 },
+  withdraw: { gasUsed: 35_000, gasPriceGwei: 20 },
   approve: { gasUsed: 45_000, gasPriceGwei: 20 },
   transferFrom: { gasUsed: 65_000, gasPriceGwei: 20 },
   transfer: { gasUsed: 51_000, gasPriceGwei: 20 }, // ERC-20 transfer想定の疑似値。21,000はネイティブETH送金の値なので使わない
@@ -86,7 +88,7 @@ export function engineConfigFromChallenge(def: {
 }
 
 export type ReadFunctionName = "name" | "symbol" | "decimals" | "totalSupply" | "balanceOf" | "allowance";
-export type WriteFunctionName = "approve" | "transfer" | "transferFrom" | "swapExactUSDCForTKN";
+export type WriteFunctionName = "approve" | "transfer" | "transferFrom" | "deposit" | "withdraw" | "swapExactUSDCForTKN";
 
 export type ReadResult =
   | { ok: true; record: CallRecord; valueRaw: bigint; valueDisplay: string }
@@ -230,8 +232,9 @@ export class Engine {
     if (!user) throw new Error("現在の疑似アカウントが存在しません");
 
     // 送信前チェック：ガス代が疑似ETH残高を超える場合はブロックに含めない（設計書 2.5）
-    if (user.ethBalanceWei < gasFeeWei) {
-      return { kind: "preflight-failure", code: "INSUFFICIENT_GAS", message: INSUFFICIENT_GAS_MESSAGE };
+    const valueWei = functionName === "deposit" ? BigInt(args["valueRaw"] ?? "0") : 0n;
+    if (user.ethBalanceWei < gasFeeWei + valueWei) {
+      return { kind: "preflight-failure", code: "INSUFFICIENT_GAS", message: valueWei > 0n ? "疑似ETHが送るvalueとガス代の合計に足りないよ。valueを減らしてみよう。" : INSUFFICIENT_GAS_MESSAGE };
     }
 
     const plan = this.planWrite(functionName, contract, args, userAddress);
@@ -302,6 +305,21 @@ export class Engine {
     const revert = (revertCode: RevertCode) => ({ revertCode, apply: () => [] as StateDiff[] });
 
     switch (functionName) {
+      case "deposit":
+      case "withdraw": {
+        const token = this.requireToken(contract);
+        const user = this.state.accounts[userAddress]!;
+        const amount = BigInt(args[functionName === "deposit" ? "valueRaw" : "amountRaw"] ?? "0");
+        const balance = token.balances[userAddress] ?? 0n;
+        if (functionName === "withdraw" && balance < amount) return revert("INSUFFICIENT_BALANCE");
+        return ok(() => {
+          const delta = functionName === "deposit" ? amount : -amount;
+          token.balances[userAddress] = balance + delta;
+          token.totalSupplyRaw += delta;
+          user.ethBalanceWei -= delta; // ガス控除後に1 wei = 1 raw WETHを交換
+          return [{ kind: "balance", token: contract, account: userAddress, beforeRaw: balance.toString(), afterRaw: (balance + delta).toString() }];
+        });
+      }
       case "approve": {
         this.requireToken(contract);
         const spender = args["spender"] ?? "";

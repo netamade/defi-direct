@@ -4,13 +4,14 @@
 // 「画面操作だけで完結するフロー」を自動検証できるようにしている。
 import {
   Engine,
+  DEFAULT_GAS,
   engineConfigFromChallenge,
   type ReadFunctionName,
   type ReadResult,
   type WriteFunctionName,
   type WriteResult,
 } from "../engine/executor";
-import type { Address, SimulationState } from "../engine/state";
+import { deserializeState, serializeState, type Address, type SimulationState } from "../engine/state";
 import { formatUnits, MAX_UINT256, rateToRational, swapAmountOutRaw } from "../engine/units";
 import type { LoadedData } from "../data/loader";
 import type { ChallengeDefinition, ForbiddenAction } from "../data/types";
@@ -154,7 +155,7 @@ export class PlaySession {
 
   /** 状態変化の予測（確認モーダル用）。状態は変えない */
   previewWrite(functionName: string, contract: Address, args: Record<string, string>): WritePreview {
-    const gas = this.def.gas[functionName] ?? { gasUsed: 45_000, gasPriceGwei: 20 };
+    const gas = this.def.gas[functionName] ?? DEFAULT_GAS[functionName] ?? { gasUsed: 45_000, gasPriceGwei: 20 };
     const gasFeeWei = BigInt(gas.gasUsed) * BigInt(gas.gasPriceGwei) * 1_000_000_000n;
     const state = this.engine.state;
     const user = this.userAddress;
@@ -166,7 +167,21 @@ export class PlaySession {
       return `${formatUnits(raw, token.decimals)} ${token.symbol}（raw ${raw.toString()}、decimals ${token.decimals}）`;
     };
 
-    if (functionName === "approve") {
+    if (functionName === "deposit" || functionName === "withdraw") {
+      // 同じエンジンを複製して予測。残高不足時に負の予測値を表示しない。
+      const previewEngine = new Engine(this.engine.config);
+      previewEngine.state = deserializeState(serializeState(state));
+      const result = previewEngine.write(functionName, contract, args);
+      if (result.kind === "success") {
+        for (const diff of result.record.stateDiff) {
+          diffs.push({
+            label: diff.kind === "eth" ? "疑似ETH（valueの移動とガス代を含む）" : "WETH残高",
+            before: diff.kind === "eth" ? `${formatUnits(BigInt(diff.beforeRaw), 18)} ETH` : describe(contract, BigInt(diff.beforeRaw)),
+            after: diff.kind === "eth" ? `${formatUnits(BigInt(diff.afterRaw), 18)} ETH` : describe(contract, BigInt(diff.afterRaw)),
+          });
+        }
+      }
+    } else if (functionName === "approve") {
       const spender = args["spender"] ?? "";
       const amount = BigInt(args["amountRaw"] ?? "0");
       const before = this.engine.getAllowance(contract, user, spender);
@@ -397,6 +412,8 @@ export class PlaySession {
 
 /** 手順文から、対応する操作（種類＋関数名）を推定する */
 function checklistTarget(text: string): { kind: "read" | "write"; functionName: string } | null {
+  if (text.includes("deposit")) return { kind: "write", functionName: "deposit" };
+  if (text.includes("withdraw")) return { kind: "write", functionName: "withdraw" };
   if (text.includes("swap") || text.includes("交換する")) {
     return { kind: "write", functionName: "swapExactUSDCForTKN" };
   }

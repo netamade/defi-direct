@@ -1,0 +1,157 @@
+{
+  "schemaVersion": 1,
+  "id": "10",
+  "title": "はじめてのWrite：WETHのdepositとwithdraw",
+  "subtitle": "はじめてのWrite：WETHのdepositとwithdraw",
+  "chapter": {
+    "bookChapter": 7,
+    "bookTitle": "WETH",
+    "section": "本の課題7-1"
+  },
+  "difficulty": 2,
+  "estimatedMinutes": 20,
+  "xp": 200,
+  "badges": [],
+  "forbiddenActions": [],
+  "gas": {
+    "deposit": {
+      "gasUsed": 28000,
+      "gasPriceGwei": 20
+    },
+    "withdraw": {
+      "gasUsed": 35000,
+      "gasPriceGwei": 20
+    }
+  },
+  "retryMessage": "手順とログを確かめて、リセットしてもう一度挑戦してみよう。",
+  "goal": "payableのvalueでETHをWETHに替え、withdrawでETHに戻す。ガス代は別にかかることを確認する。",
+  "scenario": "1 ETHを持っています。depositのvalueに0.1 ETHを指定してWETHに替え、0.04 WETHをwithdrawして戻しましょう。1 ETH = 1 WETHですが、Writeごとに疑似ガス代がかかります。",
+  "steps": [
+    "balanceOfでWETH残高を確認する",
+    "depositのvalueに0.1 ETHを入力して送信する",
+    "balanceOfで0.1 WETHを確認する",
+    "withdrawで0.04 WETHをETHに戻す",
+    "balanceOfで残り0.06 WETHを確認する"
+  ],
+  "hints": [
+    "deposit()に数量引数はないよ。payableのvalue欄に送るETHを指定しよう。",
+    "withdrawはamount引数でWETHの量を指定するよ。",
+    "ETH残高は交換した量に加えてガス代も減るよ。送信前確認を読んでみよう。"
+  ],
+  "successMessage": "ETHとWETHを往復できたね！valueと関数引数の違いも確認できたよ。",
+  "contracts": [
+    {
+      "address": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "name": "Practice Wrapped Ether",
+      "symbol": "WETH",
+      "decimals": 18,
+      "label": "練習用WETH",
+      "isPractice": true
+    }
+  ],
+  "initialState": {
+    "userAddress": "0x1111111111111111111111111111111111111111",
+    "ethBalanceWei": "1000000000000000000",
+    "spenderAddresses": {},
+    "balances": {
+      "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": {
+        "0x1111111111111111111111111111111111111111": "0"
+      }
+    },
+    "allowances": {}
+  },
+  "functions": [
+    {
+      "name": "balanceOf",
+      "kind": "read",
+      "description": "WETH残高を調べる",
+      "inputs": [
+        {
+          "name": "account",
+          "type": "address",
+          "description": "残高を調べるアドレス"
+        }
+      ]
+    },
+    {
+      "name": "deposit",
+      "kind": "write",
+      "description": "valueで送ったETHと同量のWETHを受け取る。数量引数はありません。",
+      "inputs": [],
+      "payable": true
+    },
+    {
+      "name": "withdraw",
+      "kind": "write",
+      "description": "指定量のWETHを同量のETHに戻す。",
+      "inputs": [
+        {
+          "name": "amount",
+          "type": "uint256",
+          "description": "戻すWETH（表示値）"
+        }
+      ],
+      "revertReasons": [
+        {
+          "code": "INSUFFICIENT_BALANCE",
+          "message": "WETH残高が足りないよ。"
+        }
+      ]
+    }
+  ],
+  "passCondition": {
+    "op": "and",
+    "conditions": [
+      {
+        "type": "actionSequence",
+        "sequence": [
+          {
+            "functionName": "balanceOf",
+            "kind": "read",
+            "args": {
+              "account": "0x1111111111111111111111111111111111111111"
+            },
+            "returnRaw": "0"
+          },
+          {
+            "functionName": "deposit",
+            "kind": "write",
+            "args": {
+              "valueRaw": "100000000000000000"
+            }
+          },
+          {
+            "functionName": "balanceOf",
+            "kind": "read",
+            "args": {
+              "account": "0x1111111111111111111111111111111111111111"
+            },
+            "returnRaw": "100000000000000000"
+          },
+          {
+            "functionName": "withdraw",
+            "kind": "write",
+            "args": {
+              "amountRaw": "40000000000000000"
+            }
+          },
+          {
+            "functionName": "balanceOf",
+            "kind": "read",
+            "args": {
+              "account": "0x1111111111111111111111111111111111111111"
+            },
+            "returnRaw": "60000000000000000"
+          }
+        ]
+      },
+      {
+        "type": "balanceEquals",
+        "token": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "account": "user",
+        "expectedDisplay": "0.06",
+        "expectedRaw": "60000000000000000"
+      }
+    ]
+  }
+}
