@@ -735,3 +735,9 @@ select:focus-visible {
   margin: 4px 0 0;
   color: var(--color-ink-soft);
 }
+
+/* Public proofs and signature addresses remain readable on narrow screens. */
+.airdrop-list { width: 100%; table-layout: fixed; border-collapse: collapse; }
+.airdrop-list th, .airdrop-list td { padding: 0.4rem; text-align: left; overflow-wrap: anywhere; }
+.airdrop-list th:first-child, .airdrop-list th:last-child { width: 3.5rem; }
+.signature-card { margin-block: 0.75rem; padding: 0.75rem; border: 1px solid currentColor; border-radius: 0.5rem; overflow-wrap: anywhere; }

@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { buildLoadedData } from "../src/data/loader";
-import { serializeState } from "../src/engine/state";
+import { deserializeState, serializeState } from "../src/engine/state";
 import { PlaySession } from "../src/ui/session";
 import { ProgressStore, type StorageLike } from "../src/store/progressStore";
 import { SimulationStore } from "../src/store/simulationStore";
@@ -85,5 +85,94 @@ describe("E5 airdrop",()=>{
     expect(s.previewWrite("claim",D,{amountRaw:"75000000",proof:proofA}).warning).toContain("revert");
     expect(s.previewWrite("claim",D,{amountRaw:"75000000",proof:proofC}).diffs.some(d=>d.after.includes("75 AIR"))).toBe(true);
     expect(serializeState(s.state)).toEqual(before);
+  });
+});
+const H="0x"+"b".repeat(40), DEX="0x"+"4".repeat(40);
+function permit(s: PlaySession,id="own") {return s.executeWrite("permit",A,{signatureId:id}).result;}
+function solve15(s: PlaySession) {
+  s.doRead("nonces",A,{account:U}); s.doRead("allowance",A,{owner:U,spender:H});
+  s.signPermit(); permit(s); s.doRead("nonces",A,{account:U}); permit(s,"leaked");
+  s.doRead("allowance",A,{owner:U,spender:H}); return s.answerQuiz("q15","price");
+}
+describe("E6 permit",()=>{
+  it("署名→実行→nonce進行→流出署名無効化・全stepChecks・再挑戦",()=>{
+    const s=session("15"); expect(solve15(s).clear?.awardedXp).toBe(300);
+    expect(s.state.permitNonces[A]).toBe(8); expect(s.engine.getAllowance(A,U,DEX)).toBe(200000000n);
+    expect(s.engine.getAllowance(A,U,H)).toBe(0n); expect(s.engine.getBalance(A,U)).toBe(500000000n);
+    expect(s.state.txLog.map(t=>t.revertReason)).toEqual([undefined,"INVALID_NONCE"]);
+    expect(s.checklist().every(c=>c.done)).toBe(true);
+    s.reset(); expect(s.engine.signatureLog).toEqual([]); expect(s.signedPermits.map(p=>p.id)).toEqual(["leaked"]);
+    expect(s.state.permitNonces[A]).toBe(7); solve15(s); expect(s.progress.totalXp).toBe(300);
+  });
+  it("署名はtx・call・ガス・nonce・ブロックを進めず、専用の順序証跡に残る",()=>{
+    const s=session("15"),before=serializeState(s.state); s.signPermit();
+    expect(serializeState(s.state)).toEqual(before); expect(s.engine.signatureLog).toHaveLength(1);
+    expect(s.signedPermits.map(p=>p.id)).toEqual(["leaked","own"]);
+    s.signPermit(); expect(s.engine.signatureLog).toHaveLength(1);
+    permit(s); expect(s.state.txLog[0]!.sequence).toBeGreaterThan(s.engine.signatureLog[0]!.sequence);
+    expect(JSON.stringify(serializeState(s.state))).not.toContain('signedPermits');
+    expect(JSON.stringify(serializeState(s.state))).not.toContain('signatureLog');
+  });
+  it("署名の値が使われ、引数でowner/spender/value/nonceを偽装できない",()=>{
+    const s=session("15"); s.signPermit();
+    s.executeWrite("permit",A,{signatureId:"own",owner:H,spender:H,valueRaw:"1",nonce:"8"});
+    expect(s.engine.getAllowance(A,U,DEX)).toBe(200000000n); expect(s.engine.getAllowance(A,U,H)).toBe(0n);
+    expect(()=>s.executeWrite("permit",A,{signatureId:"unknown"})).toThrow();
+  });
+  it("nonce不一致はrevert、承認とPermit nonceは不変、ガスのみ消費",()=>{
+    const s=session("15"); s.signPermit(); s.state.permitNonces[A]=9;
+    const before=serializeState(s.state),r=permit(s);
+    expect(r.kind).toBe("revert"); if(r.kind!=="preflight-failure") expect(r.record.revertReason).toBe("INVALID_NONCE");
+    expect(serializeState(s.state).allowances).toEqual(before.allowances); expect(s.state.permitNonces[A]).toBe(9);
+    expect(s.state.accounts[U]!.nonce).toBe(1); expect(s.state.blockNumber).toBe(1);
+  });
+  it("攻撃者の署名が先なら承認が反映され、課題は不合格",()=>{
+    const s=session("15"); expect(permit(s,"leaked").kind).toBe("success");
+    expect(s.engine.getAllowance(A,U,H)).toBe((1n<<256n)-1n);
+    solve15(s); expect(s.evaluation.passed).toBe(false);
+  });
+  it("previewはallowanceとnonceの進行・古い署名のrevertを正しく予測",()=>{
+    const s=session("15"); s.signPermit(); const before=serializeState(s.state);
+    const p=s.previewWrite("permit",A,{signatureId:"own"});
+    expect(p.diffs.some(d=>d.after.includes("200 USDC"))).toBe(true);
+    expect(p.diffs).toContainEqual({label:"Permit nonce",before:"7",after:"8"});
+    expect(serializeState(s.state)).toEqual(before); permit(s);
+    expect(s.previewWrite("permit",A,{signatureId:"leaked"}).warning).toContain("revert");
+  });
+  it("履歴を復元しても署名済みリストと署名記録は復元しない",()=>{
+    const s=session("15"); s.signPermit(); const saved=serializeState(s.state);
+    const fresh=session("15"); fresh.engine.state=deserializeState(saved);
+    expect(fresh.signedPermits.map(p=>p.id)).toEqual(["leaked"]); expect(fresh.engine.signatureLog).toEqual([]);
+    fresh.doRead("nonces",A,{account:U}); fresh.signPermit();
+    const order=[...fresh.state.callLog,...fresh.engine.signatureLog].map(r=>r.sequence);
+    expect(new Set(order).size).toBe(order.length);
+  });
+});
+
+describe("Wave 3 integration",()=>{
+  it("全15課題が有効、合計2850 XP、新規課題はstepsとstepChecksが1対1",()=>{
+    expect(data.invalid).toEqual([]); expect(data.problems).toEqual([]);
+    expect(data.challenges.map(c=>c.id)).toEqual(Array.from({length:15},(_,i)=>String(i+1).padStart(2,"0")));
+    expect(data.totalXp).toBe(2850);
+    for(const id of ["13","14","15"]) expect(data.byId.get(id)!.stepChecks).toHaveLength(data.byId.get(id)!.steps.length);
+  });
+  it("既存2050 XPの進捗へ800 XPを加算・保存復元し、二重付与しない",()=>{
+    const map=new Map<string,string>();
+    const storage: StorageLike={getItem:k=>map.get(k)??null,setItem:(k,v)=>{map.set(k,v);},removeItem:k=>{map.delete(k);}};
+    const progress=new ProgressStore(storage,()=>data.totalXp),sim=new SimulationStore(storage);
+    let old=progress.load().state;
+    for(const def of data.challenges.filter(d=>Number(d.id)<=12)) old=progress.markCleared(old,def.id,def.xp,[]).state;
+    progress.save(old); expect(old.totalXp).toBe(2050);
+    for(const [id,solve] of [["13",solve13],["14",solve14],["15",solve15]] as const) {
+      const s=new PlaySession(data,data.byId.get(id)!,progress,sim); solve(s); expect(s.evaluation.passed).toBe(true);
+      const restored=new PlaySession(data,data.byId.get(id)!,progress,sim); expect(restored.alreadyCleared()).toBe(true);
+      expect(serializeState(restored.state)).toEqual(serializeState(s.state));
+      restored.reset(); solve(restored);
+    }
+    expect(progress.load().state.totalXp).toBe(2850); expect(progress.load().state.clearedChallengeIds).toHaveLength(15);
+  });
+  it("署名の専用記録なしではpermit実行ログだけで合格しない",()=>{
+    const s=session("15"); solve15(s); expect(s.evaluation.passed).toBe(true);
+    s.engine.signatureLog=[]; s.answerQuiz("q15","price"); expect(s.evaluation.passed).toBe(false);
   });
 });

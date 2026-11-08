@@ -187,7 +187,7 @@ function validateChecklistCondition(node: unknown, path: string, errors: string[
   sequence.forEach((action, i) => {
     if (!isRecord(action)) return;
     const label = `${path}.sequence[${i}]`;
-    if (action["kind"] !== "read" && action["kind"] !== "write") errors.push(`${label}: kind は read / write が必要です`);
+    if (action["kind"] !== "read" && action["kind"] !== "write" && action["kind"] !== "sign") errors.push(`${label}: kind は read / write / sign が必要です`);
     if (action["contract"] !== undefined && typeof action["contract"] !== "string") errors.push(`${label}: contract は文字列が必要です`);
     if (action["status"] !== undefined && action["status"] !== 0 && action["status"] !== 1) errors.push(`${label}: status は0か1が必要です`);
     if (action["returnRaw"] !== undefined && (typeof action["returnRaw"] !== "string" || action["kind"] !== "read")) errors.push(`${label}: returnRaw はReadの文字列が必要です`);
@@ -308,6 +308,24 @@ export function validateChallengeDefinition(raw: unknown): { ok: boolean; errors
     const drop = def["airdrop"];
     const addresses = Array.isArray(contracts) ? contracts.filter(isRecord).map(c => c["address"]) : [];
     if (!isRecord(drop) || !isValidAddress(String(drop["distributor"])) || !addresses.includes(drop["token"]) || !/^0x[0-9a-f]{64}$/i.test(String(drop["root"]))) errors.push("airdropの契約・トークン・rootが不正です");
+  }
+
+  if (def["permit"] !== undefined) {
+    const permit = def["permit"];
+    const token = isRecord(permit) && Array.isArray(contracts) ? contracts.filter(isRecord).find(c => c["address"] === permit["token"]) : undefined;
+    if (!isRecord(permit) || !token || !Array.isArray(permit["preSigned"]) || !isRecord(permit["ownRequest"])) errors.push("permitのtoken・署名リクエストが不正です");
+    else {
+      const requests = [...permit["preSigned"], permit["ownRequest"]];
+      const ids = new Set<string>();
+      for (const request of requests) {
+        if (!isRecord(request) || typeof request["id"] !== "string" || ids.has(request["id"]) ||
+            request["owner"] !== (isRecord(initial) ? initial["userAddress"] : undefined) || !isValidAddress(String(request["spender"])) ||
+            !Number.isSafeInteger(request["nonce"]) || Number(request["nonce"]) < 0 ||
+            !["spenderLabel", "deadline", "origin", "value"].every(k => typeof request[k] === "string") ||
+            (request["value"] !== "maxUint256" && !/^\d+(?:\.\d+)?$/.test(String(request["value"])))) errors.push("permitの署名データが不正です");
+        else ids.add(request["id"]);
+      }
+    }
   }
 
   // 関数定義

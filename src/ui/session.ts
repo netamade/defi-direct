@@ -96,7 +96,7 @@ export class PlaySession {
     const restored = simStore.load(def.id);
     if (restored) this.engine.state = restored;
     this.progress = progressStore.load().state;
-    this.evaluation = evaluateChallenge(def, this.engine.state, this.quizAnswers());
+    this.evaluation = evaluateChallenge(def, this.engine.state, this.quizAnswers(), this.engine.signatureLog);
     this.wasPassed = this.evaluation.passed;
   }
 
@@ -118,6 +118,14 @@ export class PlaySession {
 
   alreadyCleared(): boolean {
     return this.progress.clearedChallengeIds.includes(this.def.id);
+  }
+
+  get signedPermits() { return this.engine.signedPermits; }
+
+  signPermit(): ActionOutcome {
+    this.engine.signPermit();
+    this.touchInProgress();
+    return this.afterAction();
   }
 
   // --- Read（S-05） ---
@@ -173,6 +181,7 @@ export class PlaySession {
 
     // 全Writeを実際の検査と同じ経路で予測する。元の状態・ログ・進捗には触れない。
     const previewEngine = new Engine(this.engine.config);
+    previewEngine.signedPermits = this.engine.signedPermits.map(p => ({ ...p }));
     previewEngine.state = deserializeState(serializeState(state));
     const result = previewEngine.write(functionName as WriteFunctionName, contract, args);
     if (result.kind !== "success") {
@@ -184,10 +193,10 @@ export class PlaySession {
           ?? revertMessage(code);
         warning = `revert予測：${reason}（トークン残高・allowanceは変わらず、ガス代のみ消費します）`;
       }
-    } else if (functionName === "deposit" || functionName === "redeem" || functionName === "claim" || functionName === "withdraw" || (functionName === "swapExactUSDCForTKN" && args["amountOutMinRaw"] !== undefined)) {
+    } else if (functionName === "deposit" || functionName === "redeem" || functionName === "claim" || functionName === "permit" || functionName === "withdraw" || (functionName === "swapExactUSDCForTKN" && args["amountOutMinRaw"] !== undefined)) {
       for (const diff of result.record.stateDiff) {
         diffs.push({
-          label: diff.kind === "eth" ? "疑似ETH（valueの移動とガス代を含む）" : diff.kind === "allowance" ? "allowance（DEXへの承認量）" : `${diff.account === user ? "あなたの" : "ボールトの"}${tokenOf(diff.token ?? contract)?.symbol ?? ""}残高`,
+          label: diff.kind === "eth" ? (functionName === "withdraw" || (functionName === "deposit" && !this.def.vault) ? "疑似ETH（valueの移動とガス代を含む）" : "疑似ETH（ガス代）") : diff.kind === "allowance" ? functionName === "permit" ? `allowance（${this.signedPermits.find(p => p.id === args["signatureId"])?.spenderLabel ?? "署名のspender"}への承認量）` : "allowance（DEXへの承認量）" : `${diff.account === user ? "あなたの" : this.def.airdrop ? "配布元の" : "ボールトの"}${tokenOf(diff.token ?? contract)?.symbol ?? ""}残高`,
           before: diff.kind === "eth" ? `${formatUnits(BigInt(diff.beforeRaw), 18)} ETH` : describe(diff.token ?? contract, BigInt(diff.beforeRaw)),
           after: diff.kind === "eth" ? `${formatUnits(BigInt(diff.afterRaw), 18)} ETH` : describe(diff.token ?? contract, BigInt(diff.afterRaw)),
         });
@@ -256,6 +265,10 @@ export class PlaySession {
       }
     }
 
+    if (functionName === "permit" && result.kind === "success") {
+      const token = this.def.permit!.token.toLowerCase();
+      diffs.push({ label: "Permit nonce", before: String(state.permitNonces[token] ?? 0), after: String(previewEngine.state.permitNonces[token]) });
+    }
     return {
       functionName,
       gasUsed: gas.gasUsed,
@@ -345,7 +358,7 @@ export class PlaySession {
       return {
         text,
         optional: check?.optional ?? false,
-        done: check !== undefined && checklistConditionMet(this.def, this.state, check.condition, id => this.isQuizCorrect(id)),
+        done: check !== undefined && checklistConditionMet(this.def, this.state, check.condition, id => this.isQuizCorrect(id), this.engine.signatureLog),
       };
     });
   }
@@ -368,7 +381,7 @@ export class PlaySession {
   private afterAction(): ActionOutcome {
     const previousStatus = this.status();
     const previousLevel = levelForXp(this.progress.totalXp).current.level;
-    this.evaluation = evaluateChallenge(this.def, this.engine.state, this.quizAnswers());
+    this.evaluation = evaluateChallenge(this.def, this.engine.state, this.quizAnswers(), this.engine.signatureLog);
     let clear: ClearEvent | null = null;
     if (this.evaluation.passed && !this.wasPassed) {
       const firstClear = !this.alreadyCleared();

@@ -1,3 +1,4 @@
+import type { PermitDefinition, PermitRequest, SignatureRecord } from "./permits";
 import { verifyProof } from "./keccak";
 // 疑似実行エンジン（設計書 第2節）
 //
@@ -20,7 +21,7 @@ import {
   type StateDiff,
   type TxRecord,
 } from "./state";
-import { formatUnits, MAX_UINT256, rateToRational, swapAmountOutRaw, type Rational } from "./units";
+import { formatUnits, parseUnits, MAX_UINT256, rateToRational, swapAmountOutRaw, type Rational } from "./units";
 import { INSUFFICIENT_GAS_MESSAGE, ZERO_ADDRESS, type RevertCode } from "./validation";
 
 export interface GasConfig {
@@ -51,6 +52,7 @@ export interface EngineConfig {
   gas?: Record<string, GasConfig>;
   swapQuoteRate?: number | string; // 参考見積もり。省略時は実行レートと同じ
   swapRate?: number | string; // 表示値ベース。既定 1
+  permit?: PermitDefinition;
   airdrop?: { distributor: Address; token: Address; root: string };
   vault?: { asset: Address; shareToken: Address };
   swap?: SwapConfig;
@@ -76,12 +78,14 @@ export function engineConfigFromChallenge(def: {
   gas?: Record<string, GasConfig>;
   swapQuoteRate?: number;
   swapRate?: number;
+  permit?: PermitDefinition;
   airdrop?: { distributor: Address; token: Address; root: string };
   vault?: { asset: Address; shareToken: Address };
   swap?: SwapFieldDefinition;
 }): EngineConfig {
   const config: EngineConfig = {
     challengeId: def.id,
+    ...(def.permit ? { permit: def.permit } : {}),
     ...(def.airdrop ? { airdrop: def.airdrop } : {}),
     ...(def.vault ? { vault: def.vault } : {}),
     contracts: def.contracts,
@@ -97,8 +101,8 @@ export function engineConfigFromChallenge(def: {
   return config;
 }
 
-export type ReadFunctionName = "name" | "symbol" | "decimals" | "totalSupply" | "balanceOf" | "allowance" | "getAmountsOut" | "isClaimed" | "totalAssets" | "convertToShares" | "convertToAssets" | "previewDeposit" | "previewRedeem";
-export type WriteFunctionName = "approve" | "transfer" | "transferFrom" | "deposit" | "claim" | "redeem" | "withdraw" | "swapExactUSDCForTKN";
+export type ReadFunctionName = "name" | "symbol" | "decimals" | "totalSupply" | "balanceOf" | "allowance" | "getAmountsOut" | "nonces" | "isClaimed" | "totalAssets" | "convertToShares" | "convertToAssets" | "previewDeposit" | "previewRedeem";
+export type WriteFunctionName = "approve" | "transfer" | "transferFrom" | "deposit" | "permit" | "claim" | "redeem" | "withdraw" | "swapExactUSDCForTKN";
 
 export type ReadResult =
   | { ok: true; record: CallRecord; valueRaw: bigint; valueDisplay: string }
@@ -115,16 +119,21 @@ function formatId(prefix: string, n: number): string {
 export class Engine {
   readonly config: EngineConfig;
   state: SimulationState;
+  signedPermits: PermitRequest[];
+  signatureLog: SignatureRecord[] = [];
   private readonly swapRateRational: Rational;
 
   constructor(config: EngineConfig) {
     this.config = config;
+    this.signedPermits = (config.permit?.preSigned ?? []).map(p => ({ ...p }));
     this.state = createInitialState(config.challengeId, config.contracts, config.initialState, 1);
     this.swapRateRational = rateToRational(config.swapRate ?? 1);
   }
 
   /** 課題リセット：初期状態を再生成し attemptId を+1する（進捗には触れない。設計書 2.7） */
   reset(): void {
+    this.signatureLog = [];
+    this.signedPermits = (this.config.permit?.preSigned ?? []).map(p => ({ ...p }));
     this.state = resetState(this.state, this.config.contracts, this.config.initialState);
   }
 
@@ -162,6 +171,11 @@ export class Engine {
     let valueRaw: bigint;
     let valueDisplay: string;
     switch (functionName) {
+      case "nonces":
+        if (!this.config.permit || contract !== this.config.permit.token) return { ok: false, code: "UNKNOWN_FUNCTION", message: "この契約ではnoncesは使えません" };
+        valueRaw = (args["account"] ?? "").toLowerCase() === this.currentUser().toLowerCase() ? BigInt(this.state.permitNonces[contract.toLowerCase()] ?? 0) : 0n;
+        valueDisplay = valueRaw.toString();
+        break;
       case "isClaimed":
         // この疑似モデルは現在の1ユーザーについて請求状態を持つ。
         return this.recordStringRead(functionName, contract, args,
@@ -268,6 +282,13 @@ export class Engine {
    * 表示値→raw値の変換と入力検証は呼び出し側（UI／validation）の責務。
    */
   write(functionName: WriteFunctionName, contract: Address, args: Record<string, string>): WriteResult {
+    if (functionName === "permit") {
+      const permit = this.config.permit;
+      const signature = this.signedPermits.find(p => p.id === args["signatureId"]);
+      if (!permit || contract !== permit.token || !signature) throw new Error("署名済みのPermitを選んでください");
+      args = { signatureId: signature.id, owner: signature.owner, spender: signature.spender,
+        valueRaw: this.permitValue(signature).toString(), nonce: signature.nonce.toString() };
+    }
     const gas = this.gasFor(functionName);
     const gasFeeWei = BigInt(gas.gasUsed) * BigInt(gas.gasPriceGwei) * 1_000_000_000n;
     const userAddress = this.currentUser();
@@ -325,9 +346,9 @@ export class Engine {
   }
 
   private nextSequence(): number {
-    // sequence は試行内で txLog と callLog を通した通し番号。状態は試行ごとに
-    // 再生成されるため、両ログの件数合計から導出できる。
-    return this.state.txLog.length + this.state.callLog.length + 1;
+    // 署名・Read・Writeで共通の順序。署名記録を保存しないため、復元後も
+    // 履歴に残ったsequenceの最大値から再開し、番号の重複を避ける。
+    return Math.max(0, ...this.state.txLog.map(r => r.sequence), ...this.state.callLog.map(r => r.sequence), ...this.signatureLog.map(r => r.sequence)) + 1;
   }
 
   private gasFor(functionName: string): GasConfig {
@@ -348,6 +369,18 @@ export class Engine {
     const revert = (revertCode: RevertCode) => ({ revertCode, apply: () => [] as StateDiff[] });
 
     switch (functionName) {
+      case "permit": {
+        const token = this.config.permit!.token;
+        const nonce = this.state.permitNonces[token.toLowerCase()] ?? 0;
+        if (Number(args["nonce"]) !== nonce) return revert("INVALID_NONCE");
+        const owner = args["owner"]!, spender = args["spender"]!, value = BigInt(args["valueRaw"]!);
+        return ok(() => {
+          const key = allowanceKey(owner, spender, token), before = this.state.allowances[key] ?? 0n;
+          this.state.allowances[key] = value;
+          this.state.permitNonces[token.toLowerCase()] = nonce + 1;
+          return [{ kind: "allowance", token, account: owner, spender, beforeRaw: before.toString(), afterRaw: value.toString() }];
+        });
+      }
       case "claim": {
         const drop = this.config.airdrop;
         if (!drop || contract !== drop.distributor) throw new Error("この課題・契約ではclaimは使えません");
@@ -546,6 +579,22 @@ export class Engine {
       default:
         throw new Error(`未対応のWrite関数です: ${String(functionName)}`);
     }
+  }
+
+  permitValue(signature: PermitRequest): bigint {
+    const token = this.requireToken(this.config.permit!.token);
+    return signature.value === "maxUint256" ? MAX_UINT256 : parseUnits(signature.value, token.decimals);
+  }
+
+  signPermit(): void {
+    const permit = this.config.permit;
+    if (!permit) throw new Error("この課題では署名は使えません");
+    const request = permit.ownRequest;
+    if (this.signedPermits.some(p => p.id === request.id)) return;
+    this.signedPermits.push({ ...request });
+    this.signatureLog.push({ type: "sign", functionName: "signPermit", attemptId: this.state.attemptId,
+      sequence: this.nextSequence(), contract: permit.token,
+      args: { signatureId: request.id, owner: request.owner, spender: request.spender, valueRaw: this.permitValue(request).toString(), nonce: request.nonce.toString() } });
   }
 
   /** 現在の資産残高と発行済みシェアから換算。空ボールトはdecimalsに合わせ1:1で開始。 */

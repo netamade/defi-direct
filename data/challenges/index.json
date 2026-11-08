@@ -111,6 +111,14 @@
       "title": "Merkleエアドロップを請求する",
       "bookChapter": 22,
       "xp": 250
+    },
+    {
+      "id": "15",
+      "order": 15,
+      "file": "15.json",
+      "title": "Permit署名：署名が承認になるとき",
+      "bookChapter": 13,
+      "xp": 300
     }
   ],
   "schemaVersion": 1

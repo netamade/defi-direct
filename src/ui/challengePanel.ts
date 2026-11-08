@@ -71,7 +71,7 @@ export function renderChallengePanel(
 
   if (def.airdrop) {
     root.append(text("h2", "公開配布リスト"));
-    const table = el("table");
+    const table = el("table", "airdrop-list");
     table.append(el("thead", undefined, [el("tr", undefined, [el("th", undefined, ["割当"]), el("th", undefined, ["アドレス"]), el("th", undefined, ["AIR"])])]));
     const body = el("tbody");
     for (const row of def.airdrop.distribution ?? []) body.append(el("tr", undefined, [el("td", undefined, [row.label]), el("td", undefined, [row.address]), el("td", undefined, [row.amount])]));

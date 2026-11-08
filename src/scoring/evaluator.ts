@@ -1,3 +1,4 @@
+import type { SignatureRecord } from "../engine/permits";
 // 採点エンジン（設計書 第4節）
 //
 // - 入力は「現在の試行の状態・txLog・callLog」と「クイズ回答」。判定は読むだけ（状態を変えない）。
@@ -98,15 +99,19 @@ export function matchForbiddenAction(
 
 type TimelineEntry =
   | { origin: "write"; record: TxRecord }
-  | { origin: "read"; record: CallRecord };
+  | { origin: "read"; record: CallRecord }
+  | { origin: "sign"; record: SignatureRecord };
 
-function currentAttemptTimeline(state: SimulationState): TimelineEntry[] {
+function currentAttemptTimeline(state: SimulationState, signatures: SignatureRecord[] = []): TimelineEntry[] {
   const entries: TimelineEntry[] = [];
   for (const record of state.txLog) {
     if (record.attemptId === state.attemptId) entries.push({ origin: "write", record });
   }
   for (const record of state.callLog) {
     if (record.attemptId === state.attemptId) entries.push({ origin: "read", record });
+  }
+  for (const record of signatures) {
+    if (record.attemptId === state.attemptId) entries.push({ origin: "sign", record });
   }
   entries.sort((a, b) => a.record.sequence - b.record.sequence);
   return entries;
@@ -428,11 +433,12 @@ export function evaluateChallenge(
   def: ChallengeDefinition,
   state: SimulationState,
   quizAnswers: Record<string, string>,
+  signatures: SignatureRecord[] = [],
 ): EvalResult {
   const ctx: EvalContext = {
     def,
     state,
-    timeline: currentAttemptTimeline(state),
+    timeline: currentAttemptTimeline(state, signatures),
     quizAnswers,
     warnings: [],
   };

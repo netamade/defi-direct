@@ -1,3 +1,4 @@
+import type { SignatureRecord } from "../engine/permits";
 // 手順チェックは各手順自身の証跡を現在の試行から独立して調べる。
 // 成功ログを先頭の未完了手順へ割り当てず、合格・禁止操作ゲートにも連動させない。
 import type { ChallengeDefinition, ChecklistCondition, SequenceStep } from "../data/types";
@@ -9,13 +10,14 @@ export function checklistConditionMet(
   state: SimulationState,
   condition: ChecklistCondition,
   isQuizCorrect: (questionId: string) => boolean,
+  signatures: SignatureRecord[] = [],
 ): boolean {
   if ("op" in condition) {
-    const results = condition.conditions.map(child => checklistConditionMet(def, state, child, isQuizCorrect));
+    const results = condition.conditions.map(child => checklistConditionMet(def, state, child, isQuizCorrect, signatures));
     return condition.op === "and" ? results.every(Boolean) : results.some(Boolean);
   }
   if (condition.type === "quizCorrect") return isQuizCorrect(condition.questionId);
-  const timeline = [...state.callLog, ...state.txLog]
+  const timeline = [...state.callLog, ...state.txLog, ...signatures]
     .filter(record => record.attemptId === state.attemptId)
     .sort((a, b) => a.sequence - b.sequence);
   let index = 0;
@@ -29,7 +31,7 @@ export function checklistConditionMet(
 function matches(
   def: ChallengeDefinition,
   action: SequenceStep & { revertCode?: string },
-  record: CallRecord | TxRecord,
+  record: CallRecord | TxRecord | SignatureRecord,
 ): boolean {
   if (record.functionName !== action.functionName) return false;
   const kind = action.kind ?? def.functions.find(fn => fn.name === action.functionName)?.kind;
