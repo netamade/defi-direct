@@ -50,6 +50,7 @@ export interface EngineConfig {
   gas?: Record<string, GasConfig>;
   swapQuoteRate?: number | string; // 参考見積もり。省略時は実行レートと同じ
   swapRate?: number | string; // 表示値ベース。既定 1
+  vault?: { asset: Address; shareToken: Address };
   swap?: SwapConfig;
 }
 
@@ -73,10 +74,12 @@ export function engineConfigFromChallenge(def: {
   gas?: Record<string, GasConfig>;
   swapQuoteRate?: number;
   swapRate?: number;
+  vault?: { asset: Address; shareToken: Address };
   swap?: SwapFieldDefinition;
 }): EngineConfig {
   const config: EngineConfig = {
     challengeId: def.id,
+    ...(def.vault ? { vault: def.vault } : {}),
     contracts: def.contracts,
     initialState: def.initialState,
     ...(def.gas ? { gas: def.gas } : {}),
@@ -90,8 +93,8 @@ export function engineConfigFromChallenge(def: {
   return config;
 }
 
-export type ReadFunctionName = "name" | "symbol" | "decimals" | "totalSupply" | "balanceOf" | "allowance" | "getAmountsOut";
-export type WriteFunctionName = "approve" | "transfer" | "transferFrom" | "deposit" | "withdraw" | "swapExactUSDCForTKN";
+export type ReadFunctionName = "name" | "symbol" | "decimals" | "totalSupply" | "balanceOf" | "allowance" | "getAmountsOut" | "totalAssets" | "convertToShares" | "convertToAssets" | "previewDeposit" | "previewRedeem";
+export type WriteFunctionName = "approve" | "transfer" | "transferFrom" | "deposit" | "redeem" | "withdraw" | "swapExactUSDCForTKN";
 
 export type ReadResult =
   | { ok: true; record: CallRecord; valueRaw: bigint; valueDisplay: string }
@@ -139,6 +142,9 @@ export class Engine {
 
   read(functionName: ReadFunctionName, contract: Address, args: Record<string, string> = {}): ReadResult {
     const swap = this.config.swap;
+    const vault = this.config.vault;
+    const vaultRead = ["totalAssets", "convertToShares", "convertToAssets", "previewDeposit", "previewRedeem"].includes(functionName);
+    if (vaultRead && (!vault || contract !== vault.shareToken)) return { ok: false, code: "UNKNOWN_FUNCTION", message: "この課題・コントラクトではボールトReadは使えません" };
     const token = functionName === "getAmountsOut"
       ? (swap && contract === swap.dexAddress ? this.state.tokens[swap.tokenOut] : undefined)
       : this.state.tokens[contract];
@@ -150,6 +156,17 @@ export class Engine {
     let valueRaw: bigint;
     let valueDisplay: string;
     switch (functionName) {
+      case "totalAssets":
+      case "convertToShares":
+      case "convertToAssets":
+      case "previewDeposit":
+      case "previewRedeem": {
+        const toShares = functionName === "convertToShares" || functionName === "previewDeposit";
+        valueRaw = functionName === "totalAssets" ? this.getBalance(vault!.asset, vault!.shareToken)
+          : this.convertVault(BigInt(args[toShares ? "assetsRaw" : "sharesRaw"] ?? "0"), toShares);
+        valueDisplay = formatUnits(valueRaw, this.requireToken(toShares ? vault!.shareToken : vault!.asset).decimals);
+        break;
+      }
       case "getAmountsOut": {
         // この疑似DEXは固定ペア。配列ではなく最終受取量を数値で返す。
         const tokenIn = this.requireToken(swap!.tokenIn);
@@ -248,7 +265,7 @@ export class Engine {
     if (!user) throw new Error("現在の疑似アカウントが存在しません");
 
     // 送信前チェック：ガス代が疑似ETH残高を超える場合はブロックに含めない（設計書 2.5）
-    const valueWei = functionName === "deposit" ? BigInt(args["valueRaw"] ?? "0") : 0n;
+    const valueWei = functionName === "deposit" && !this.config.vault ? BigInt(args["valueRaw"] ?? "0") : 0n;
     if (user.ethBalanceWei < gasFeeWei + valueWei) {
       return { kind: "preflight-failure", code: "INSUFFICIENT_GAS", message: valueWei > 0n ? "疑似ETHが送るvalueとガス代の合計に足りないよ。valueを減らしてみよう。" : INSUFFICIENT_GAS_MESSAGE };
     }
@@ -321,7 +338,33 @@ export class Engine {
     const revert = (revertCode: RevertCode) => ({ revertCode, apply: () => [] as StateDiff[] });
 
     switch (functionName) {
+      case "redeem":
       case "deposit":
+        if (this.config.vault) {
+          const vault = this.config.vault;
+          if (contract !== vault.shareToken) throw new Error("ボールトのコントラクトを指定してください");
+          const depositing = functionName === "deposit";
+          const amount = BigInt(args[depositing ? "assetsRaw" : "sharesRaw"] ?? "0");
+          const converted = this.convertVault(amount, depositing);
+          const assets = depositing ? amount : converted;
+          const shares = depositing ? converted : amount;
+          const share = this.requireToken(vault.shareToken);
+          if (this.getBalance(depositing ? vault.asset : vault.shareToken, userAddress) < amount ||
+              (!depositing && this.getBalance(vault.asset, vault.shareToken) < assets)) return revert("INSUFFICIENT_BALANCE");
+          return ok(() => {
+            const delta = depositing ? 1n : -1n;
+            const changes: [Address, Address, bigint][] = [[vault.asset, userAddress, -assets * delta], [vault.asset, vault.shareToken, assets * delta], [vault.shareToken, userAddress, shares * delta]];
+            const diffs = changes.map(([token, account, change]) => {
+              const before = this.getBalance(token, account);
+              this.requireToken(token).balances[account] = before + change;
+              return { kind: "balance" as const, token, account, beforeRaw: before.toString(), afterRaw: (before + change).toString() };
+            });
+            share.totalSupplyRaw += shares * delta;
+            return diffs;
+          });
+        }
+        if (functionName === "redeem") throw new Error("この課題ではredeemは使えません");
+        // WETHのpayable depositは既存のまま。
       case "withdraw": {
         const token = this.requireToken(contract);
         const user = this.state.accounts[userAddress]!;
@@ -471,6 +514,18 @@ export class Engine {
       default:
         throw new Error(`未対応のWrite関数です: ${String(functionName)}`);
     }
+  }
+
+  /** 現在の資産残高と発行済みシェアから換算。空ボールトはdecimalsに合わせ1:1で開始。 */
+  convertVault(amount: bigint, toShares: boolean): bigint {
+    const vault = this.config.vault;
+    if (!vault) throw new Error("この課題ではボールトは使えません");
+    const asset = this.requireToken(vault.asset), share = this.requireToken(vault.shareToken);
+    const assets = this.getBalance(vault.asset, vault.shareToken), shares = share.totalSupplyRaw;
+    if (assets === 0n || shares === 0n) return toShares
+      ? amount * 10n ** BigInt(share.decimals) / 10n ** BigInt(asset.decimals)
+      : amount * 10n ** BigInt(asset.decimals) / 10n ** BigInt(share.decimals);
+    return toShares ? amount * shares / assets : amount * assets / shares;
   }
 
   private requireToken(contract: Address) {

@@ -383,6 +383,12 @@ export function validateChallengeDefinition(raw: unknown): { ok: boolean; errors
     }
   }
 
+  if (def["vault"] !== undefined) {
+    const vault = def["vault"];
+    const addresses = Array.isArray(contracts) ? contracts.filter(isRecord).map(c => c["address"]) : [];
+    if (!isRecord(vault) || !addresses.includes(vault["asset"]) || !addresses.includes(vault["shareToken"]) || vault["asset"] === vault["shareToken"]) errors.push("vault は異なる資産・シェアコントラクトを指定してください");
+  }
+
   // 判定条件
   if (def["passCondition"] === undefined) {
     errors.push("passCondition がありません");

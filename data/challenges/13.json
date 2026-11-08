@@ -1,0 +1,463 @@
+{
+  "schemaVersion": 1,
+  "id": "13",
+  "title": "ERC-4626ボールト入門",
+  "subtitle": "ERC-4626ボールト入門",
+  "chapter": {
+    "bookChapter": 16,
+    "bookTitle": "ERC-4626ボールト入門",
+    "section": "本の課題16-1"
+  },
+  "difficulty": 3,
+  "estimatedMinutes": 20,
+  "xp": 250,
+  "badges": [],
+  "forbiddenActions": [],
+  "gas": {
+    "deposit": {
+      "gasUsed": 120000,
+      "gasPriceGwei": 20
+    },
+    "redeem": {
+      "gasUsed": 120000,
+      "gasPriceGwei": 20
+    }
+  },
+  "retryMessage": "手順とログを確認して、もう一度挑戦しよう。",
+  "goal": "資産とシェアの換算を現在の残高から読み、預入と償還を体験する。",
+  "scenario": "USDCを運用する疑似ボールトです。他の預金者の10,000 vUSDCに対し、ボールトには運用益を含む10,500 USDCがあります。1株は1.05 USDC。あなたは2,000 USDCを持っています。この練習ではdeposit自体が資産を移動します。ボールトのアドレスはvUSDCのコントラクトと共通です。",
+  "steps": [
+    "自分のUSDC残高をbalanceOfで確認する",
+    "totalAssetsとvUSDCのtotalSupplyを読む",
+    "convertToSharesで1,050 USDCを換算する",
+    "depositで1,050 USDCを預ける",
+    "自分のvUSDC残高1,000を確認する",
+    "previewRedeemで1,000株の戻り額を読む",
+    "redeemで1,000株を償還する",
+    "USDC残高が2,000に戻ったことを確認する"
+  ],
+  "hints": [
+    "Readの対象コントラクトをUSDCとvUSDCで切り替えよう。",
+    "ボールトReadとdeposit／redeemはvUSDC契約を使います。",
+    "assetsはUSDC、sharesはvUSDCの表示値です。"
+  ],
+  "successMessage": "1株の価格と資産額の違いを確かめられたね！",
+  "contracts": [
+    {
+      "address": "0x2222222222222222222222222222222222222222",
+      "name": "Practice USDC",
+      "symbol": "USDC",
+      "decimals": 6,
+      "label": "練習用USDC",
+      "isPractice": true
+    },
+    {
+      "address": "0x6666666666666666666666666666666666666666",
+      "name": "Practice vUSDC",
+      "symbol": "vUSDC",
+      "decimals": 6,
+      "label": "練習用vUSDC",
+      "isPractice": true
+    }
+  ],
+  "initialState": {
+    "userAddress": "0x1111111111111111111111111111111111111111",
+    "spenderAddresses": {},
+    "ethBalanceWei": "1000000000000000000",
+    "balances": {
+      "0x2222222222222222222222222222222222222222": {
+        "0x1111111111111111111111111111111111111111": "2000000000",
+        "0x6666666666666666666666666666666666666666": "10500000000"
+      },
+      "0x6666666666666666666666666666666666666666": {
+        "0x7777777777777777777777777777777777777777": "10000000000",
+        "0x1111111111111111111111111111111111111111": "0"
+      }
+    },
+    "allowances": {}
+  },
+  "functions": [
+    {
+      "name": "balanceOf",
+      "kind": "read",
+      "description": "balanceOf",
+      "inputs": [
+        {
+          "name": "account",
+          "type": "address",
+          "description": "account（表示値）"
+        }
+      ]
+    },
+    {
+      "name": "totalSupply",
+      "kind": "read",
+      "description": "totalSupply",
+      "inputs": []
+    },
+    {
+      "name": "totalAssets",
+      "kind": "read",
+      "description": "totalAssets",
+      "inputs": []
+    },
+    {
+      "name": "convertToShares",
+      "kind": "read",
+      "description": "convertToShares",
+      "inputs": [
+        {
+          "name": "assets",
+          "type": "uint256",
+          "description": "assets（表示値）"
+        }
+      ]
+    },
+    {
+      "name": "convertToAssets",
+      "kind": "read",
+      "description": "convertToAssets",
+      "inputs": [
+        {
+          "name": "shares",
+          "type": "uint256",
+          "description": "shares（表示値）"
+        }
+      ]
+    },
+    {
+      "name": "previewDeposit",
+      "kind": "read",
+      "description": "previewDeposit",
+      "inputs": [
+        {
+          "name": "assets",
+          "type": "uint256",
+          "description": "assets（表示値）"
+        }
+      ]
+    },
+    {
+      "name": "previewRedeem",
+      "kind": "read",
+      "description": "previewRedeem",
+      "inputs": [
+        {
+          "name": "shares",
+          "type": "uint256",
+          "description": "shares（表示値）"
+        }
+      ]
+    },
+    {
+      "name": "deposit",
+      "kind": "write",
+      "description": "deposit",
+      "inputs": [
+        {
+          "name": "assets",
+          "type": "uint256",
+          "description": "assets（表示値）"
+        }
+      ],
+      "revertReasons": [
+        {
+          "code": "INSUFFICIENT_BALANCE",
+          "message": "資産またはシェアの残高が足りないよ。"
+        }
+      ]
+    },
+    {
+      "name": "redeem",
+      "kind": "write",
+      "description": "redeem",
+      "inputs": [
+        {
+          "name": "shares",
+          "type": "uint256",
+          "description": "shares（表示値）"
+        }
+      ],
+      "revertReasons": [
+        {
+          "code": "INSUFFICIENT_BALANCE",
+          "message": "資産またはシェアの残高が足りないよ。"
+        }
+      ]
+    }
+  ],
+  "vault": {
+    "asset": "0x2222222222222222222222222222222222222222",
+    "shareToken": "0x6666666666666666666666666666666666666666"
+  },
+  "questions": [
+    {
+      "questionId": "q13",
+      "kind": "choice",
+      "prompt": "預けた額と同額が戻ったのに株が1,000だったのはなぜ？",
+      "options": [
+        {
+          "optionId": "price",
+          "label": "1株の値段が1.05 USDCだから"
+        },
+        {
+          "optionId": "wrong",
+          "label": "株数は常に預けたUSDCと同じだから"
+        }
+      ],
+      "correctOptionId": "price"
+    }
+  ],
+  "passCondition": {
+    "op": "and",
+    "conditions": [
+      {
+        "type": "actionSequence",
+        "sequence": [
+          {
+            "functionName": "balanceOf",
+            "kind": "read",
+            "contract": "0x2222222222222222222222222222222222222222",
+            "args": {
+              "account": "user"
+            },
+            "returnRaw": "2000000000"
+          },
+          {
+            "functionName": "totalAssets",
+            "kind": "read",
+            "contract": "0x6666666666666666666666666666666666666666",
+            "args": {},
+            "returnRaw": "10500000000"
+          },
+          {
+            "functionName": "totalSupply",
+            "kind": "read",
+            "contract": "0x6666666666666666666666666666666666666666",
+            "args": {},
+            "returnRaw": "10000000000"
+          },
+          {
+            "functionName": "convertToShares",
+            "kind": "read",
+            "contract": "0x6666666666666666666666666666666666666666",
+            "args": {
+              "assetsRaw": "1050000000"
+            },
+            "returnRaw": "1000000000"
+          },
+          {
+            "functionName": "deposit",
+            "kind": "write",
+            "contract": "0x6666666666666666666666666666666666666666",
+            "args": {
+              "assetsRaw": "1050000000"
+            }
+          },
+          {
+            "functionName": "balanceOf",
+            "kind": "read",
+            "contract": "0x6666666666666666666666666666666666666666",
+            "args": {
+              "account": "user"
+            },
+            "returnRaw": "1000000000"
+          },
+          {
+            "functionName": "previewRedeem",
+            "kind": "read",
+            "contract": "0x6666666666666666666666666666666666666666",
+            "args": {
+              "sharesRaw": "1000000000"
+            },
+            "returnRaw": "1050000000"
+          },
+          {
+            "functionName": "redeem",
+            "kind": "write",
+            "contract": "0x6666666666666666666666666666666666666666",
+            "args": {
+              "sharesRaw": "1000000000"
+            }
+          },
+          {
+            "functionName": "balanceOf",
+            "kind": "read",
+            "contract": "0x2222222222222222222222222222222222222222",
+            "args": {
+              "account": "user"
+            },
+            "returnRaw": "2000000000"
+          }
+        ]
+      },
+      {
+        "type": "balanceEquals",
+        "token": "0x2222222222222222222222222222222222222222",
+        "account": "user",
+        "expectedDisplay": "2000",
+        "expectedRaw": "2000000000"
+      },
+      {
+        "type": "balanceEquals",
+        "token": "0x6666666666666666666666666666666666666666",
+        "account": "user",
+        "expectedDisplay": "0",
+        "expectedRaw": "0"
+      },
+      {
+        "type": "quizCorrect",
+        "questionId": "q13"
+      }
+    ]
+  },
+  "stepChecks": [
+    {
+      "condition": {
+        "type": "actionSequence",
+        "sequence": [
+          {
+            "functionName": "balanceOf",
+            "kind": "read",
+            "contract": "0x2222222222222222222222222222222222222222",
+            "args": {
+              "account": "user"
+            },
+            "returnRaw": "2000000000"
+          }
+        ]
+      }
+    },
+    {
+      "condition": {
+        "type": "actionSequence",
+        "sequence": [
+          {
+            "functionName": "totalAssets",
+            "kind": "read",
+            "contract": "0x6666666666666666666666666666666666666666",
+            "args": {},
+            "returnRaw": "10500000000"
+          },
+          {
+            "functionName": "totalSupply",
+            "kind": "read",
+            "contract": "0x6666666666666666666666666666666666666666",
+            "args": {},
+            "returnRaw": "10000000000"
+          }
+        ]
+      }
+    },
+    {
+      "condition": {
+        "type": "actionSequence",
+        "sequence": [
+          {
+            "functionName": "convertToShares",
+            "kind": "read",
+            "contract": "0x6666666666666666666666666666666666666666",
+            "args": {
+              "assetsRaw": "1050000000"
+            },
+            "returnRaw": "1000000000"
+          }
+        ]
+      }
+    },
+    {
+      "condition": {
+        "type": "actionSequence",
+        "sequence": [
+          {
+            "functionName": "deposit",
+            "kind": "write",
+            "contract": "0x6666666666666666666666666666666666666666",
+            "args": {
+              "assetsRaw": "1050000000"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "condition": {
+        "type": "actionSequence",
+        "sequence": [
+          {
+            "functionName": "deposit",
+            "kind": "write",
+            "contract": "0x6666666666666666666666666666666666666666",
+            "args": {
+              "assetsRaw": "1050000000"
+            }
+          },
+          {
+            "functionName": "balanceOf",
+            "kind": "read",
+            "contract": "0x6666666666666666666666666666666666666666",
+            "args": {
+              "account": "user"
+            },
+            "returnRaw": "1000000000"
+          }
+        ]
+      }
+    },
+    {
+      "condition": {
+        "type": "actionSequence",
+        "sequence": [
+          {
+            "functionName": "previewRedeem",
+            "kind": "read",
+            "contract": "0x6666666666666666666666666666666666666666",
+            "args": {
+              "sharesRaw": "1000000000"
+            },
+            "returnRaw": "1050000000"
+          }
+        ]
+      }
+    },
+    {
+      "condition": {
+        "type": "actionSequence",
+        "sequence": [
+          {
+            "functionName": "redeem",
+            "kind": "write",
+            "contract": "0x6666666666666666666666666666666666666666",
+            "args": {
+              "sharesRaw": "1000000000"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "condition": {
+        "type": "actionSequence",
+        "sequence": [
+          {
+            "functionName": "redeem",
+            "kind": "write",
+            "contract": "0x6666666666666666666666666666666666666666",
+            "args": {
+              "sharesRaw": "1000000000"
+            }
+          },
+          {
+            "functionName": "balanceOf",
+            "kind": "read",
+            "contract": "0x2222222222222222222222222222222222222222",
+            "args": {
+              "account": "user"
+            },
+            "returnRaw": "2000000000"
+          }
+        ]
+      }
+    }
+  ]
+}

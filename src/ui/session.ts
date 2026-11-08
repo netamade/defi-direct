@@ -184,10 +184,10 @@ export class PlaySession {
           ?? revertMessage(code);
         warning = `revert予測：${reason}（トークン残高・allowanceは変わらず、ガス代のみ消費します）`;
       }
-    } else if (functionName === "deposit" || functionName === "withdraw" || (functionName === "swapExactUSDCForTKN" && args["amountOutMinRaw"] !== undefined)) {
+    } else if (functionName === "deposit" || functionName === "redeem" || functionName === "withdraw" || (functionName === "swapExactUSDCForTKN" && args["amountOutMinRaw"] !== undefined)) {
       for (const diff of result.record.stateDiff) {
         diffs.push({
-          label: diff.kind === "eth" ? "疑似ETH（valueの移動とガス代を含む）" : diff.kind === "allowance" ? "allowance（DEXへの承認量）" : `${tokenOf(diff.token ?? contract)?.symbol ?? ""}残高`,
+          label: diff.kind === "eth" ? "疑似ETH（valueの移動とガス代を含む）" : diff.kind === "allowance" ? "allowance（DEXへの承認量）" : `${diff.account === user ? "あなたの" : "ボールトの"}${tokenOf(diff.token ?? contract)?.symbol ?? ""}残高`,
           before: diff.kind === "eth" ? `${formatUnits(BigInt(diff.beforeRaw), 18)} ETH` : describe(diff.token ?? contract, BigInt(diff.beforeRaw)),
           after: diff.kind === "eth" ? `${formatUnits(BigInt(diff.afterRaw), 18)} ETH` : describe(diff.token ?? contract, BigInt(diff.afterRaw)),
         });

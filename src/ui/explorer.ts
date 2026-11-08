@@ -20,6 +20,11 @@ import { openModal, showToast } from "./feedback";
 import type { ActionOutcome, PlaySession, WritePreview } from "./session";
 
 const READ_FUNCTIONS: { name: ReadFunctionName; signature: string; fallbackDescription: string }[] = [
+  { name: "totalAssets", signature: "totalAssets()", fallbackDescription: "ボールトの現在の残高から換算する" },
+  { name: "convertToShares", signature: "convertToShares(uint256 assets)", fallbackDescription: "ボールトの現在の残高から換算する" },
+  { name: "convertToAssets", signature: "convertToAssets(uint256 shares)", fallbackDescription: "ボールトの現在の残高から換算する" },
+  { name: "previewDeposit", signature: "previewDeposit(uint256 assets)", fallbackDescription: "ボールトの現在の残高から換算する" },
+  { name: "previewRedeem", signature: "previewRedeem(uint256 shares)", fallbackDescription: "ボールトの現在の残高から換算する" },
   { name: "getAmountsOut", signature: "getAmountsOut(uint256 amountIn)", fallbackDescription: "固定ペアの参考受取量を返す（この疑似DEXでは最終受取量のみ）" },
   { name: "name", signature: "name()", fallbackDescription: "トークンの名前を返す" },
   { name: "symbol", signature: "symbol()", fallbackDescription: "トークンのシンボル（略称）を返す" },
@@ -210,7 +215,7 @@ export class ExplorerView {
 
     // 関数一覧（アコーディオン）
     const list = el("div", "function-list");
-    READ_FUNCTIONS.filter(fn => fn.name !== "getAmountsOut" || this.session.def.functions.some(f => f.name === fn.name)).forEach((fn) => {
+    READ_FUNCTIONS.filter(fn => ["name", "symbol", "decimals", "totalSupply", "balanceOf", "allowance"].includes(fn.name) || this.session.def.functions.some(f => f.name === fn.name)).forEach((fn) => {
       list.append(this.buildReadFunction(fn, fn.name === "decimals"));
     });
     panel.append(list);
@@ -276,8 +281,8 @@ export class ExplorerView {
     }
 
     let quoteInput: HTMLInputElement | null = null;
-    if (fn.name === "getAmountsOut") {
-      const label = el("label", "field-label", ["amountIn（支払うUSDC・表示値）"]);
+    if (fn.name === "getAmountsOut" || ["convertToShares", "convertToAssets", "previewDeposit", "previewRedeem"].includes(fn.name)) {
+      const label = el("label", "field-label", [fn.name === "getAmountsOut" ? "amountIn（表示値）" : `${fn.name === "convertToShares" || fn.name === "previewDeposit" ? "assets" : "shares"}（表示値）`]);
       quoteInput = document.createElement("input");
       quoteInput.type = "text";
       quoteInput.inputMode = "decimal";
@@ -306,6 +311,16 @@ export class ExplorerView {
         args["amountInRaw"] = checked.value.toString();
         contract = swap.dexAddress;
       }
+      if (this.session.def.vault && ["totalAssets", "convertToShares", "convertToAssets", "previewDeposit", "previewRedeem"].includes(fn.name)) {
+        const vault = this.session.def.vault;
+        contract = vault.shareToken;
+        if (quoteInput) {
+          const toShares = fn.name === "convertToShares" || fn.name === "previewDeposit";
+          const checked = validateAmountInput(quoteInput.value, this.session.state.tokens[toShares ? vault.asset : vault.shareToken]!.decimals);
+          if (!checked.ok) { showToast(checked.message); return; }
+          args[toShares ? "assetsRaw" : "sharesRaw"] = checked.value.toString();
+        }
+      }
       const { result, ...outcome } = this.session.doRead(fn.name, contract, args);
       if (result.ok) {
         const line = this.formatReadResult(fn.name, result.valueDisplay, result.record);
@@ -324,8 +339,15 @@ export class ExplorerView {
     return item;
   }
 
+  private readResultToken(name: string, contract: string): string {
+    if (name === "getAmountsOut") return this.session.def.swap?.tokenOut ?? contract;
+    const vault = this.session.def.vault;
+    if (vault && ["totalAssets", "convertToAssets", "previewRedeem"].includes(name)) return vault.asset;
+    return contract;
+  }
+
   private formatReadResult(functionName: string, valueDisplay: string, record: CallRecord): string {
-    const token = this.session.state.tokens[record.functionName === "getAmountsOut" ? (this.session.def.swap?.tokenOut ?? "") : record.contract];
+    const token = this.session.state.tokens[this.readResultToken(record.functionName, record.contract)];
     if (!token) return `${functionName} → ${valueDisplay}`;
     if (functionName === "name" || functionName === "symbol" || functionName === "decimals") {
       return `${functionName} → ${valueDisplay}`;
@@ -381,6 +403,10 @@ export class ExplorerView {
     // 対象コントラクトの切替に追従するため、decimals / symbol は都度引く
     const amountSpec = (name: string): { decimals: number; symbol: string } => {
       if (name === "value") return { decimals: 18, symbol: "ETH" };
+      if (this.session.def.vault) {
+        const token = this.session.state.tokens[name === "assets" ? this.session.def.vault.asset : this.session.def.vault.shareToken]!;
+        return { decimals: token.decimals, symbol: token.symbol };
+      }
       const address = isSwap ? ((name === "amountOutMin" ? this.session.def.swap?.tokenOut : this.session.def.swap?.tokenIn) ?? "") : this.writeContract;
       const token = this.session.state.tokens[address];
       return { decimals: token?.decimals ?? 18, symbol: token?.symbol ?? "" };
@@ -480,7 +506,7 @@ export class ExplorerView {
       }
     }
     for (const [name, input] of amountInputs) {
-      const tokenAddress = isSwap
+      const tokenAddress = this.session.def.vault ? (name === "assets" ? this.session.def.vault.asset : this.session.def.vault.shareToken) : isSwap
         ? (name === "amountOutMin" ? this.session.def.swap?.tokenOut : this.session.def.swap?.tokenIn)
         : this.writeContract;
       const decimals = name === "value" ? 18 : (this.session.state.tokens[tokenAddress ?? ""]?.decimals ?? 18);
@@ -488,6 +514,7 @@ export class ExplorerView {
       if (!checked.ok) { showError(amountInputs.size > 1 ? `${name}：${checked.message}` : checked.message); return; }
       args[`${name}Raw`] = checked.value.toString();
     }
+    if (this.session.def.vault && (fn.name === "deposit" || fn.name === "redeem")) contract = this.session.def.vault.shareToken;
     if (isSwap) {
       contract = this.session.engine.config.swap?.dexAddress ?? contract;
     }
@@ -596,7 +623,7 @@ export class ExplorerView {
     }
     if (latest.call) {
       const record = latest.call;
-      const token = state.tokens[record.functionName === "getAmountsOut" ? (this.session.def.swap?.tokenOut ?? "") : record.contract];
+      const token = state.tokens[this.readResultToken(record.functionName, record.contract)];
       box.append(text("h4", `Read結果：${record.functionName}`));
       box.append(
         text(
