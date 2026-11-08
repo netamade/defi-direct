@@ -26,6 +26,7 @@ export interface FunctionDefinition {
   kind: "read" | "write";
   description: string;
   inputs: FunctionInput[];
+  payable?: boolean; // ETH valueを送るWrite（状態スキーマには影響しない）
   revertReasons?: { code: string; message: string }[];
 }
 
@@ -125,6 +126,7 @@ export interface ChallengeDefinition {
   initialState: InitialStateInput;
   functions: FunctionDefinition[];
   gas: Record<string, { gasUsed: number; gasPriceGwei: number }>; // すべて疑似値
+  swapQuoteRate?: number; // 参考見積もりレート。省略時はswapRate
   swapRate?: number; // 表示値ベースのレート。03では1
   swap?: SwapDefinition; // swap を使う課題では必須（ローダーで検証する）
   questions?: QuestionDefinition[];

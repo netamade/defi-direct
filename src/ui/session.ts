@@ -4,13 +4,14 @@
 // 「画面操作だけで完結するフロー」を自動検証できるようにしている。
 import {
   Engine,
+  DEFAULT_GAS,
   engineConfigFromChallenge,
   type ReadFunctionName,
   type ReadResult,
   type WriteFunctionName,
   type WriteResult,
 } from "../engine/executor";
-import type { Address, SimulationState } from "../engine/state";
+import { deserializeState, serializeState, type Address, type SimulationState } from "../engine/state";
 import { formatUnits, MAX_UINT256, rateToRational, swapAmountOutRaw } from "../engine/units";
 import type { LoadedData } from "../data/loader";
 import type { ChallengeDefinition, ForbiddenAction } from "../data/types";
@@ -32,6 +33,7 @@ import {
   revertReaderSatisfied,
   REVERT_READER_BADGE_ID,
 } from "../scoring/badges";
+import { revertMessage, type RevertCode } from "../engine/validation";
 import { levelForXp } from "../scoring/levels";
 
 /** クリアイベント（QUEST CLEAR演出の材料）。false→true へ転じた瞬間にだけ発生する */
@@ -62,6 +64,7 @@ export interface WritePreview {
   gasUsed: number;
   gasPriceGwei: number;
   gasFeeEth: string;
+  warning?: string;
   /** 状態変化の予測（表示値とraw値の併記。設計書 2.6） */
   diffs: { label: string; before: string; after: string }[];
 }
@@ -154,11 +157,12 @@ export class PlaySession {
 
   /** 状態変化の予測（確認モーダル用）。状態は変えない */
   previewWrite(functionName: string, contract: Address, args: Record<string, string>): WritePreview {
-    const gas = this.def.gas[functionName] ?? { gasUsed: 45_000, gasPriceGwei: 20 };
+    const gas = this.def.gas[functionName] ?? DEFAULT_GAS[functionName] ?? { gasUsed: 45_000, gasPriceGwei: 20 };
     const gasFeeWei = BigInt(gas.gasUsed) * BigInt(gas.gasPriceGwei) * 1_000_000_000n;
     const state = this.engine.state;
     const user = this.userAddress;
     const diffs: WritePreview["diffs"] = [];
+    let warning: string | undefined;
     const tokenOf = (address: Address) => state.tokens[address];
     const describe = (tokenAddress: Address, raw: bigint): string => {
       const token = tokenOf(tokenAddress);
@@ -166,7 +170,23 @@ export class PlaySession {
       return `${formatUnits(raw, token.decimals)} ${token.symbol}（raw ${raw.toString()}、decimals ${token.decimals}）`;
     };
 
-    if (functionName === "approve") {
+    if (functionName === "deposit" || functionName === "withdraw" || (functionName === "swapExactUSDCForTKN" && args["amountOutMinRaw"] !== undefined)) {
+      // 同じエンジンを複製して予測。残高不足時に負の予測値を表示しない。
+      const previewEngine = new Engine(this.engine.config);
+      previewEngine.state = deserializeState(serializeState(state));
+      const result = previewEngine.write(functionName, contract, args);
+      if (result.kind === "success") {
+        for (const diff of result.record.stateDiff) {
+          diffs.push({
+            label: diff.kind === "eth" ? "疑似ETH（valueの移動とガス代を含む）" : diff.kind === "allowance" ? "allowance（DEXへの承認量）" : `${tokenOf(diff.token ?? contract)?.symbol ?? ""}残高`,
+            before: diff.kind === "eth" ? `${formatUnits(BigInt(diff.beforeRaw), 18)} ETH` : describe(diff.token ?? contract, BigInt(diff.beforeRaw)),
+            after: diff.kind === "eth" ? `${formatUnits(BigInt(diff.afterRaw), 18)} ETH` : describe(diff.token ?? contract, BigInt(diff.afterRaw)),
+          });
+        }
+      } else {
+        warning = result.kind === "preflight-failure" ? result.message : `revert予測：${revertMessage(result.record.revertReason as RevertCode)}（ガス代のみ消費）`;
+      }
+    } else if (functionName === "approve") {
       const spender = args["spender"] ?? "";
       const amount = BigInt(args["amountRaw"] ?? "0");
       const before = this.engine.getAllowance(contract, user, spender);
@@ -175,22 +195,27 @@ export class PlaySession {
         before: describe(contract, before),
         after: describe(contract, amount),
       });
-    } else if (functionName === "transfer") {
+    } else if (functionName === "transfer" || functionName === "transferFrom") {
+      const from = functionName === "transferFrom" ? (args["from"] ?? "") : user;
       const to = args["to"] ?? "";
       const amount = BigInt(args["amountRaw"] ?? "0");
-      const senderBefore = this.engine.getBalance(contract, user);
+      const senderBefore = this.engine.getBalance(contract, from);
       const recipientBefore = this.engine.getBalance(contract, to);
       diffs.push({
-        label: "あなたの残高",
+        label: from === user ? "あなたの残高" : "引き出し元の残高",
         before: describe(contract, senderBefore),
-        after: describe(contract, senderBefore - amount),
+        after: describe(contract, functionName === "transferFrom" && from === to ? senderBefore : senderBefore - amount),
       });
       diffs.push({
         label: "送り先の残高",
         before: describe(contract, recipientBefore),
-        after: describe(contract, recipientBefore + amount),
+        after: describe(contract, functionName === "transferFrom" && from === to ? recipientBefore : recipientBefore + amount),
       });
-    } else if (this.engine.config.swap && functionName !== "approve" && functionName !== "transfer") {
+      if (functionName === "transferFrom") {
+        const before = this.engine.getAllowance(contract, from, user);
+        diffs.push({ label: "allowance（引き出し元からあなたへの承認量）", before: describe(contract, before), after: describe(contract, before === MAX_UINT256 ? before : before - amount) });
+      }
+    } else if (this.engine.config.swap && functionName === "swapExactUSDCForTKN") {
       const swap = this.engine.config.swap;
       const amountIn = BigInt(args["amountInRaw"] ?? "0");
       const tokenIn = tokenOf(swap.tokenIn);
@@ -230,6 +255,7 @@ export class PlaySession {
       gasUsed: gas.gasUsed,
       gasPriceGwei: gas.gasPriceGwei,
       gasFeeEth: formatUnits(gasFeeWei, 18),
+      ...(warning ? { warning } : {}),
       diffs,
     };
   }
@@ -392,10 +418,14 @@ export class PlaySession {
 
 /** 手順文から、対応する操作（種類＋関数名）を推定する */
 function checklistTarget(text: string): { kind: "read" | "write"; functionName: string } | null {
+  if (text.includes("deposit")) return { kind: "write", functionName: "deposit" };
+  if (text.includes("withdraw")) return { kind: "write", functionName: "withdraw" };
+  if (text.includes("getAmountsOut")) return { kind: "read", functionName: "getAmountsOut" };
   if (text.includes("swap") || text.includes("交換する")) {
     return { kind: "write", functionName: "swapExactUSDCForTKN" };
   }
   if (text.includes("approve")) return { kind: "write", functionName: "approve" };
+  if (text.includes("transferFrom")) return { kind: "write", functionName: "transferFrom" };
   if (text.includes("transfer")) return { kind: "write", functionName: "transfer" };
   if (text.includes("allowance")) return { kind: "read", functionName: "allowance" };
   if (text.includes("balanceOf") || text.includes("残高")) return { kind: "read", functionName: "balanceOf" };

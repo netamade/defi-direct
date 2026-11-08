@@ -29,7 +29,7 @@ function allChallengeFiles(): Record<string, unknown> {
 function loadAll(): LoadedData {
   return buildLoadedData({
     challengeFiles: allChallengeFiles(),
-    indexRaw: readJson("../data/challenges/index.json"),
+    indexRaw: readJson("./fixtures/wave1-index.json"),
     badgesRaw: readJson("../data/badges.json"),
   });
 }
@@ -52,7 +52,7 @@ describe("ローダー（実データ）", () => {
     const dummy = clone(readJson("../data/challenges/03.json")) as Record<string, unknown>;
     dummy["id"] = "10";
     dummy["title"] = "Dummy Swap";
-    const index = clone(readJson("../data/challenges/index.json")) as {
+    const index = clone(readJson("./fixtures/wave1-index.json")) as {
       challenges: Record<string, unknown>[];
     };
     index.challenges.push({ id: "10", order: 10, file: "10.json", title: "Dummy Swap", bookChapter: 15, xp: 200 });
@@ -147,7 +147,7 @@ describe("ローダー（壊れた課題は除外され、他に影響しない�
     broken["schemaVersion"] = 99;
     const data = buildLoadedData({
       challengeFiles: { ...allChallengeFiles(), "01.json": broken },
-      indexRaw: readJson("../data/challenges/index.json"),
+      indexRaw: readJson("./fixtures/wave1-index.json"),
       badgesRaw: readJson("../data/badges.json"),
     });
     expect(data.invalid.map((i) => i.file)).toEqual(["01.json"]);

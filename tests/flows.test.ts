@@ -18,7 +18,7 @@ const data: LoadedData = buildLoadedData({
     "02.json": readJson("../data/challenges/02.json"),
     "03.json": readJson("../data/challenges/03.json"),
   },
-  indexRaw: readJson("../data/challenges/index.json"),
+  indexRaw: readJson("./fixtures/wave1-index.json"),
   badgesRaw: readJson("../data/badges.json"),
 });
 

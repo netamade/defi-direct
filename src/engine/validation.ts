@@ -84,9 +84,11 @@ export type RevertCode =
   | "ZERO_ADDRESS_SPENDER"
   | "ZERO_ADDRESS_RECIPIENT"
   | "INSUFFICIENT_BALANCE"
-  | "INSUFFICIENT_ALLOWANCE";
+  | "INSUFFICIENT_ALLOWANCE"
+  | "INSUFFICIENT_OUTPUT_AMOUNT";
 
 export const REVERT_MESSAGES: Record<RevertCode, string> = {
+  INSUFFICIENT_OUTPUT_AMOUNT: "受け取り量がamountOutMinを下回るため止まったよ。見積もりと最低受取量を確かめよう。",
   ZERO_ADDRESS_SPENDER: "承認先にゼロアドレスは使えないよ。疑似DEXのアドレスを確かめてみよう。",
   ZERO_ADDRESS_RECIPIENT: "送り先にゼロアドレスは使えないよ。宛先を確かめてみよう。",
   INSUFFICIENT_BALANCE: "残高が足りないよ。数量を確かめてみよう。",

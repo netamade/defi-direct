@@ -20,6 +20,7 @@ import { openModal, showToast } from "./feedback";
 import type { ActionOutcome, PlaySession, WritePreview } from "./session";
 
 const READ_FUNCTIONS: { name: ReadFunctionName; signature: string; fallbackDescription: string }[] = [
+  { name: "getAmountsOut", signature: "getAmountsOut(uint256 amountIn)", fallbackDescription: "固定ペアの参考受取量を返す（この疑似DEXでは最終受取量のみ）" },
   { name: "name", signature: "name()", fallbackDescription: "トークンの名前を返す" },
   { name: "symbol", signature: "symbol()", fallbackDescription: "トークンのシンボル（略称）を返す" },
   { name: "decimals", signature: "decimals()", fallbackDescription: "小数点以下の桁数を返す" },
@@ -209,8 +210,8 @@ export class ExplorerView {
 
     // 関数一覧（アコーディオン）
     const list = el("div", "function-list");
-    READ_FUNCTIONS.forEach((fn, index) => {
-      list.append(this.buildReadFunction(fn, index === 2));
+    READ_FUNCTIONS.filter(fn => fn.name !== "getAmountsOut" || this.session.def.functions.some(f => f.name === fn.name)).forEach((fn) => {
+      list.append(this.buildReadFunction(fn, fn.name === "decimals"));
     });
     panel.append(list);
     return panel;
@@ -274,6 +275,17 @@ export class ExplorerView {
       body.append(ownerLabel, spenderLabel);
     }
 
+    let quoteInput: HTMLInputElement | null = null;
+    if (fn.name === "getAmountsOut") {
+      const label = el("label", "field-label", ["amountIn（支払うUSDC・表示値）"]);
+      quoteInput = document.createElement("input");
+      quoteInput.type = "text";
+      quoteInput.inputMode = "decimal";
+      quoteInput.className = "input-text";
+      label.append(quoteInput);
+      body.append(label);
+    }
+
     const resultsBox = el("div", "read-results");
     resultsBox.dataset["key"] = fn.name;
     resultsBox.append(...this.resultLines(fn.name));
@@ -285,7 +297,16 @@ export class ExplorerView {
     queryButton.addEventListener("click", () => {
       const args: Record<string, string> = {};
       for (const [key, select] of selects) args[key] = select.value;
-      const { result, ...outcome } = this.session.doRead(fn.name, this.readContract, args);
+      let contract = this.readContract;
+      if (fn.name === "getAmountsOut") {
+        const swap = this.session.engine.config.swap;
+        if (!swap) return;
+        const checked = validateAmountInput(quoteInput?.value ?? "", this.session.state.tokens[swap.tokenIn]?.decimals ?? 6);
+        if (!checked.ok) { showToast(checked.message); return; }
+        args["amountInRaw"] = checked.value.toString();
+        contract = swap.dexAddress;
+      }
+      const { result, ...outcome } = this.session.doRead(fn.name, contract, args);
       if (result.ok) {
         const line = this.formatReadResult(fn.name, result.valueDisplay, result.record);
         const lines = this.readResults.get(fn.name) ?? [];
@@ -304,7 +325,7 @@ export class ExplorerView {
   }
 
   private formatReadResult(functionName: string, valueDisplay: string, record: CallRecord): string {
-    const token = this.session.state.tokens[record.contract];
+    const token = this.session.state.tokens[record.functionName === "getAmountsOut" ? (this.session.def.swap?.tokenOut ?? "") : record.contract];
     if (!token) return `${functionName} → ${valueDisplay}`;
     if (functionName === "name" || functionName === "symbol" || functionName === "decimals") {
       return `${functionName} → ${valueDisplay}`;
@@ -356,10 +377,11 @@ export class ExplorerView {
 
     const errorBox = el("p", "form-error");
     errorBox.hidden = true;
-    const isSwap = fn.name !== "approve" && fn.name !== "transfer";
+    const isSwap = fn.name === "swapExactUSDCForTKN";
     // 対象コントラクトの切替に追従するため、decimals / symbol は都度引く
-    const amountSpec = (): { decimals: number; symbol: string } => {
-      const address = isSwap ? (this.session.def.swap?.tokenIn ?? "") : this.writeContract;
+    const amountSpec = (name: string): { decimals: number; symbol: string } => {
+      if (name === "value") return { decimals: 18, symbol: "ETH" };
+      const address = isSwap ? ((name === "amountOutMin" ? this.session.def.swap?.tokenOut : this.session.def.swap?.tokenIn) ?? "") : this.writeContract;
       const token = this.session.state.tokens[address];
       return { decimals: token?.decimals ?? 18, symbol: token?.symbol ?? "" };
     };
@@ -379,25 +401,23 @@ export class ExplorerView {
       }
     }
 
-    let amountInput: HTMLInputElement | null = null;
-    let previewLine: HTMLElement | null = null;
-    const amountArg = fn.inputs.find((i) => i.type === "uint256");
-    if (amountArg) {
-      const label = el("label", "field-label", [
-        `${amountArg.name}（${amountArg.description}）`,
-      ]);
-      amountInput = document.createElement("input");
+    const amountInputs = new Map<string, HTMLInputElement>();
+    const amountArgs = fn.inputs.filter(i => i.type === "uint256");
+    if (fn.payable) amountArgs.push({ name: "value", description: "送るETH量（payable・表示値）", type: "uint256" });
+    for (const amountArg of amountArgs) {
+      const label = el("label", "field-label", [`${amountArg.name}（${amountArg.description}）`]);
+      const amountInput = document.createElement("input");
       amountInput.type = "text";
       amountInput.inputMode = "decimal";
       amountInput.className = "input-text";
       amountInput.placeholder = "例：10";
+      amountInputs.set(amountArg.name, amountInput);
       label.append(amountInput);
       item.append(label);
-      previewLine = text("p", "数量を入れると、raw値への換算プレビューが出ます。", "note");
+      const previewLine = text("p", "数量を入れると、raw値への換算プレビューが出ます。", "note");
       item.append(previewLine);
       const updatePreview = () => {
-        if (!amountInput || !previewLine) return;
-        const { decimals, symbol } = amountSpec();
+        const { decimals, symbol } = amountSpec(amountArg.name);
         const value = amountInput.value.trim();
         if (value === "") {
           previewLine.textContent = "数量を入れると、raw値への換算プレビューが出ます。";
@@ -415,10 +435,8 @@ export class ExplorerView {
         maxButton.className = "btn btn-quiet btn-small";
         maxButton.textContent = "実験：無制限の量を入力してみる（注意）";
         maxButton.addEventListener("click", () => {
-          if (amountInput) {
-            amountInput.value = formatUnits(MAX_UINT256, amountSpec().decimals);
-            updatePreview();
-          }
+          amountInput.value = formatUnits(MAX_UINT256, amountSpec(amountArg.name).decimals);
+          updatePreview();
         });
         item.append(maxButton);
       }
@@ -430,7 +448,7 @@ export class ExplorerView {
     writeButton.textContent = "Write（送信前の確認へ）";
     writeButton.addEventListener("click", () => {
       errorBox.hidden = true;
-      this.startWrite(fn, addressSelects, amountInput, errorBox);
+      this.startWrite(fn, addressSelects, amountInputs, errorBox);
     });
     item.append(writeButton, errorBox);
     return item;
@@ -439,17 +457,14 @@ export class ExplorerView {
   private startWrite(
     fn: FunctionDefinition,
     addressSelects: Map<string, HTMLSelectElement>,
-    amountInput: HTMLInputElement | null,
+    amountInputs: Map<string, HTMLInputElement>,
     errorBox: HTMLElement,
   ): void {
     const showError = (message: string) => {
       errorBox.textContent = message;
       errorBox.hidden = false;
     };
-    const isSwap = fn.name !== "approve" && fn.name !== "transfer";
-    const amountDecimals = isSwap
-      ? (this.session.state.tokens[this.session.def.swap?.tokenIn ?? ""]?.decimals ?? 18)
-      : (this.session.state.tokens[this.writeContract]?.decimals ?? 18);
+    const isSwap = fn.name === "swapExactUSDCForTKN";
     const args: Record<string, string> = {};
     let contract: Address = this.writeContract;
 
@@ -464,15 +479,14 @@ export class ExplorerView {
         args[input.name] = checked.value;
       }
     }
-    const amountArg = fn.inputs.find((i) => i.type === "uint256");
-    if (amountArg) {
-      const checked = validateAmountInput(amountInput?.value ?? "", amountDecimals);
-      if (!checked.ok) {
-        showError(checked.message);
-        return;
-      }
-      if (fn.name === "approve" || fn.name === "transfer") args["amountRaw"] = checked.value.toString();
-      else args["amountInRaw"] = checked.value.toString();
+    for (const [name, input] of amountInputs) {
+      const tokenAddress = isSwap
+        ? (name === "amountOutMin" ? this.session.def.swap?.tokenOut : this.session.def.swap?.tokenIn)
+        : this.writeContract;
+      const decimals = name === "value" ? 18 : (this.session.state.tokens[tokenAddress ?? ""]?.decimals ?? 18);
+      const checked = validateAmountInput(input.value, decimals);
+      if (!checked.ok) { showError(amountInputs.size > 1 ? `${name}：${checked.message}` : checked.message); return; }
+      args[`${name}Raw`] = checked.value.toString();
     }
     if (isSwap) {
       contract = this.session.engine.config.swap?.dexAddress ?? contract;
@@ -538,6 +552,7 @@ export class ExplorerView {
     }
     add("想定ガス（疑似値）", `${preview.gasUsed.toLocaleString()} × ${preview.gasPriceGwei} Gwei ＝ ${preview.gasFeeEth} ETH`);
     body.append(list);
+    if (preview.warning) body.append(text("p", preview.warning, "warn-text"));
     if (preview.diffs.length > 0) {
       body.append(text("h4", "状態変化の予測"));
       const diffList = el("ul", "diff-list");
@@ -581,7 +596,7 @@ export class ExplorerView {
     }
     if (latest.call) {
       const record = latest.call;
-      const token = state.tokens[record.contract];
+      const token = state.tokens[record.functionName === "getAmountsOut" ? (this.session.def.swap?.tokenOut ?? "") : record.contract];
       box.append(text("h4", `Read結果：${record.functionName}`));
       box.append(
         text(
@@ -620,17 +635,17 @@ export class ExplorerView {
     if (record.stateDiff.length > 0) {
       const diffList = el("ul", "diff-list");
       for (const diff of record.stateDiff) {
-        diffList.append(el("li", undefined, [this.describeDiff(diff)]));
+        diffList.append(el("li", undefined, [this.describeDiff(diff, record.functionName)]));
       }
       card.append(text("h4", "状態の変化"), diffList);
     }
     box.append(card);
   }
 
-  private describeDiff(diff: TxRecord["stateDiff"][number]): string {
+  private describeDiff(diff: TxRecord["stateDiff"][number], functionName: string): string {
     const state = this.session.state;
     if (diff.kind === "eth") {
-      return `疑似ETH：${formatUnits(BigInt(diff.beforeRaw), 18)} ETH → ${formatUnits(BigInt(diff.afterRaw), 18)} ETH（ガス代）`;
+      return `疑似ETH：${formatUnits(BigInt(diff.beforeRaw), 18)} ETH → ${formatUnits(BigInt(diff.afterRaw), 18)} ETH（${functionName === "deposit" || functionName === "withdraw" ? "valueの移動とガス代を含む" : "ガス代"}）`;
     }
     const token = diff.token ? state.tokens[diff.token] : undefined;
     if (!token) return `${diff.beforeRaw} → ${diff.afterRaw}`;

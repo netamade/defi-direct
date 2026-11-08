@@ -29,7 +29,10 @@ export interface GasConfig {
 
 /** 設計書 2.5 の既定ガス（すべて疑似値）。課題JSONの gas で上書きできる。 */
 export const DEFAULT_GAS: Record<string, GasConfig> = {
+  deposit: { gasUsed: 28_000, gasPriceGwei: 20 },
+  withdraw: { gasUsed: 35_000, gasPriceGwei: 20 },
   approve: { gasUsed: 45_000, gasPriceGwei: 20 },
+  transferFrom: { gasUsed: 65_000, gasPriceGwei: 20 },
   transfer: { gasUsed: 51_000, gasPriceGwei: 20 }, // ERC-20 transfer想定の疑似値。21,000はネイティブETH送金の値なので使わない
   swapExactUSDCForTKN: { gasUsed: 120_000, gasPriceGwei: 20 },
 };
@@ -45,6 +48,7 @@ export interface EngineConfig {
   contracts: ContractInfo[];
   initialState: InitialStateInput;
   gas?: Record<string, GasConfig>;
+  swapQuoteRate?: number | string; // 参考見積もり。省略時は実行レートと同じ
   swapRate?: number | string; // 表示値ベース。既定 1
   swap?: SwapConfig;
 }
@@ -67,6 +71,7 @@ export function engineConfigFromChallenge(def: {
   contracts: ContractInfo[];
   initialState: InitialStateInput;
   gas?: Record<string, GasConfig>;
+  swapQuoteRate?: number;
   swapRate?: number;
   swap?: SwapFieldDefinition;
 }): EngineConfig {
@@ -79,13 +84,14 @@ export function engineConfigFromChallenge(def: {
   const dex = def.swap ? def.initialState.spenderAddresses[def.swap.spenderKey] : undefined;
   if (def.swapRate !== undefined && def.swap && dex) {
     config.swapRate = def.swapRate;
+    config.swapQuoteRate = def.swapQuoteRate ?? def.swapRate;
     config.swap = { dexAddress: dex, tokenIn: def.swap.tokenIn, tokenOut: def.swap.tokenOut };
   }
   return config;
 }
 
-export type ReadFunctionName = "name" | "symbol" | "decimals" | "totalSupply" | "balanceOf" | "allowance";
-export type WriteFunctionName = "approve" | "transfer" | "swapExactUSDCForTKN";
+export type ReadFunctionName = "name" | "symbol" | "decimals" | "totalSupply" | "balanceOf" | "allowance" | "getAmountsOut";
+export type WriteFunctionName = "approve" | "transfer" | "transferFrom" | "deposit" | "withdraw" | "swapExactUSDCForTKN";
 
 export type ReadResult =
   | { ok: true; record: CallRecord; valueRaw: bigint; valueDisplay: string }
@@ -132,7 +138,10 @@ export class Engine {
   // --- Read（状態を変えない。成功時のみcallLogに記録する） ---
 
   read(functionName: ReadFunctionName, contract: Address, args: Record<string, string> = {}): ReadResult {
-    const token = this.state.tokens[contract];
+    const swap = this.config.swap;
+    const token = functionName === "getAmountsOut"
+      ? (swap && contract === swap.dexAddress ? this.state.tokens[swap.tokenOut] : undefined)
+      : this.state.tokens[contract];
     if (!token) {
       // 存在しないコントラクトへのReadは疑似エラー表示とし、callLogには記録しない（設計書 2.4）
       return { ok: false, code: "UNKNOWN_CONTRACT", message: "そのコントラクトは練習環境にありません" };
@@ -141,6 +150,14 @@ export class Engine {
     let valueRaw: bigint;
     let valueDisplay: string;
     switch (functionName) {
+      case "getAmountsOut": {
+        // この疑似DEXは固定ペア。配列ではなく最終受取量を数値で返す。
+        const tokenIn = this.requireToken(swap!.tokenIn);
+        valueRaw = swapAmountOutRaw(BigInt(args["amountInRaw"] ?? "0"), tokenIn.decimals, token.decimals,
+          rateToRational(this.config.swapQuoteRate ?? this.config.swapRate ?? 1));
+        valueDisplay = formatUnits(valueRaw, token.decimals);
+        break;
+      }
       case "name":
         // 文字列を返すRead（S-05のコントラクト情報表示用）。raw・表示とも文字列そのもの
         return this.recordStringRead(functionName, contract, args, token.name);
@@ -218,7 +235,9 @@ export class Engine {
 
   /**
    * args の数量は raw値の10進文字列で渡す（approve: { spender, amountRaw }、
-   * transfer: { to, amountRaw }、swapExactUSDCForTKN: { amountInRaw }）。
+   * transfer: { to, amountRaw }、transferFrom: { from, to, amountRaw }、
+   * deposit: { valueRaw }（payableのwei）、withdraw: { amountRaw }、
+   * swapExactUSDCForTKN: { amountInRaw, amountOutMinRaw? }）。
    * 表示値→raw値の変換と入力検証は呼び出し側（UI／validation）の責務。
    */
   write(functionName: WriteFunctionName, contract: Address, args: Record<string, string>): WriteResult {
@@ -229,8 +248,9 @@ export class Engine {
     if (!user) throw new Error("現在の疑似アカウントが存在しません");
 
     // 送信前チェック：ガス代が疑似ETH残高を超える場合はブロックに含めない（設計書 2.5）
-    if (user.ethBalanceWei < gasFeeWei) {
-      return { kind: "preflight-failure", code: "INSUFFICIENT_GAS", message: INSUFFICIENT_GAS_MESSAGE };
+    const valueWei = functionName === "deposit" ? BigInt(args["valueRaw"] ?? "0") : 0n;
+    if (user.ethBalanceWei < gasFeeWei + valueWei) {
+      return { kind: "preflight-failure", code: "INSUFFICIENT_GAS", message: valueWei > 0n ? "疑似ETHが送るvalueとガス代の合計に足りないよ。valueを減らしてみよう。" : INSUFFICIENT_GAS_MESSAGE };
     }
 
     const plan = this.planWrite(functionName, contract, args, userAddress);
@@ -301,6 +321,21 @@ export class Engine {
     const revert = (revertCode: RevertCode) => ({ revertCode, apply: () => [] as StateDiff[] });
 
     switch (functionName) {
+      case "deposit":
+      case "withdraw": {
+        const token = this.requireToken(contract);
+        const user = this.state.accounts[userAddress]!;
+        const amount = BigInt(args[functionName === "deposit" ? "valueRaw" : "amountRaw"] ?? "0");
+        const balance = token.balances[userAddress] ?? 0n;
+        if (functionName === "withdraw" && balance < amount) return revert("INSUFFICIENT_BALANCE");
+        return ok(() => {
+          const delta = functionName === "deposit" ? amount : -amount;
+          token.balances[userAddress] = balance + delta;
+          token.totalSupplyRaw += delta;
+          user.ethBalanceWei -= delta; // ガス控除後に1 wei = 1 raw WETHを交換
+          return [{ kind: "balance", token: contract, account: userAddress, beforeRaw: balance.toString(), afterRaw: (balance + delta).toString() }];
+        });
+      }
       case "approve": {
         this.requireToken(contract);
         const spender = args["spender"] ?? "";
@@ -355,6 +390,34 @@ export class Engine {
           return diffs;
         });
       }
+      case "transferFrom": {
+        const token = this.requireToken(contract);
+        const from = args["from"] ?? "";
+        const to = args["to"] ?? "";
+        const amount = BigInt(args["amountRaw"] ?? "0");
+        const allowance = this.getAllowance(contract, from, userAddress);
+        if (allowance < amount) return revert("INSUFFICIENT_ALLOWANCE");
+        if (to === ZERO_ADDRESS) return revert("ZERO_ADDRESS_RECIPIENT");
+        const balance = token.balances[from] ?? 0n;
+        if (balance < amount) return revert("INSUFFICIENT_BALANCE");
+        return ok(() => {
+          const diffs: StateDiff[] = [];
+          if (amount > 0n && from !== to) {
+            const recipient = token.balances[to] ?? 0n;
+            token.balances[from] = balance - amount;
+            token.balances[to] = recipient + amount;
+            diffs.push(
+              { kind: "balance", token: contract, account: from, beforeRaw: balance.toString(), afterRaw: (balance - amount).toString() },
+              { kind: "balance", token: contract, account: to, beforeRaw: recipient.toString(), afterRaw: (recipient + amount).toString() },
+            );
+          }
+          if (allowance !== MAX_UINT256 && amount > 0n) {
+            this.state.allowances[allowanceKey(from, userAddress, contract)] = allowance - amount;
+            diffs.push({ kind: "allowance", token: contract, spender: userAddress, beforeRaw: allowance.toString(), afterRaw: (allowance - amount).toString() });
+          }
+          return diffs;
+        });
+      }
       case "swapExactUSDCForTKN": {
         const swap = this.config.swap;
         if (!swap) throw new Error("この課題では swap は使えません（swap設定がありません）");
@@ -366,13 +429,10 @@ export class Engine {
         if (allowance < amountIn) return revert("INSUFFICIENT_ALLOWANCE");
         const balanceIn = tokenIn.balances[userAddress] ?? 0n;
         if (balanceIn < amountIn) return revert("INSUFFICIENT_BALANCE");
+        const amountOut = swapAmountOutRaw(amountIn, tokenIn.decimals, tokenOut.decimals, this.swapRateRational);
+        const amountOutMin = BigInt(args["amountOutMinRaw"] ?? "0"); // 既存課題の省略は従来どおり
+        if (amountOut < amountOutMin) return revert("INSUFFICIENT_OUTPUT_AMOUNT");
         return ok(() => {
-          const amountOut = swapAmountOutRaw(
-            amountIn,
-            tokenIn.decimals,
-            tokenOut.decimals,
-            this.swapRateRational,
-          );
           const diffs: StateDiff[] = [];
           const balanceOutBefore = tokenOut.balances[userAddress] ?? 0n;
           tokenIn.balances[userAddress] = balanceIn - amountIn;
