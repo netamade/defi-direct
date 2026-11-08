@@ -16,6 +16,10 @@ export const LEVELS: LevelDefinition[] = [
   { level: 3, name: "承認マスター見習い", minXp: 250 },
   { level: 4, name: "スワップ挑戦者", minXp: 450 },
   { level: 5, name: "直コン入門修了", minXp: 700 },
+  // Wave 3 §6: レベル閾値は案（名称と数値の最終判断はeguchi）。
+  { level: 6, name: "ボールト使い", minXp: 1200 },
+  { level: 7, name: "署名の番人", minXp: 1900 },
+  { level: 8, name: "直コンマスター", minXp: 2600 },
 ];
 
 export interface LevelStatus {

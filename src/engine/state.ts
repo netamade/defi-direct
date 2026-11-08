@@ -1,4 +1,4 @@
-// 疑似実行エンジンの状態モデル（設計書 2.2 の型定義どおりに凍結）
+// 疑似実行エンジンの状態モデル（Wave 3 §1でflags / permitNoncesを追加）
 //
 // スキーマ凍結について（設計書 5.3 フェーズ1完了条件）：
 // SimulationState / TxRecord / CallRecord / StateSnapshot のフィールド追加・削除・
@@ -73,13 +73,15 @@ export interface CallRecord {
 }
 
 export interface SimulationState {
-  schemaVersion: 2; // v1.1で凍結するスキーマ版数（txLog・callLog・スナップショットを含む）
+  schemaVersion: 2; // Wave 3 状態スキーマ版数（txLog・callLog・スナップショットを含む）
   challengeId: string; // 例: "01" / "02" / "03"
   attemptId: number; // 試行番号。課題リセットごとに+1する。判定は現在のattemptIdの履歴のみで行う
   blockNumber: number; // 疑似ブロック番号。ブロックに包含されたWrite（成功・revertを問わず）ごとに+1する。Readでは不変
   accounts: Record<Address, Account>;
   tokens: Record<Address, Token>; // コントラクトアドレス → トークン定義
   allowances: Record<string, bigint>; // キー: `${owner}:${spender}:${token}` → 承認量（raw値）
+  flags: Record<string, boolean>;
+  permitNonces: Record<string, number>;
   txLog: TxRecord[]; // 時系列のWrite履歴。課題ごと・試行ごとに区切る（attemptIdで絞る）
   callLog: CallRecord[]; // 時系列の成功したReadのみの履歴。課題ごと・試行ごとに区切る
 }
@@ -104,6 +106,8 @@ export interface ContractInfo {
 }
 
 export interface InitialStateInput {
+  flags?: Record<string, boolean>;
+  permitNonces?: Record<string, number>;
   userAddress: Address;
   spenderAddresses: Record<string, Address>; // 例: { dex: "0x..." }
   ethBalanceWei: string; // 疑似ETH残高のwei表記。全課題で必須
@@ -194,6 +198,8 @@ export function createInitialState(
     accounts,
     tokens,
     allowances,
+    flags: { ...initial.flags },
+    permitNonces: Object.fromEntries(Object.entries(initial.permitNonces ?? {}).map(([k,v]) => [k.toLowerCase(),v])),
     txLog: [],
     callLog: [],
   };
@@ -235,7 +241,9 @@ export function snapshotState(state: SimulationState): StateSnapshot {
 // --- localStorage 保存用シリアライズ（BigIntは10進文字列。設計書 2.6） ---
 
 export interface SerializedSimulationState {
-  schemaVersion: 2;
+  schemaVersion: 1 | 2;
+  flags?: Record<string, boolean>;
+  permitNonces?: Record<string, number>;
   challengeId: string;
   attemptId: number;
   blockNumber: number;
@@ -305,15 +313,19 @@ export function serializeState(state: SimulationState): SerializedSimulationStat
     accounts,
     tokens,
     allowances,
+    flags: { ...state.flags },
+    permitNonces: { ...state.permitNonces },
     txLog: state.txLog.map((tx) => ({ ...tx, args: { ...tx.args }, stateDiff: tx.stateDiff.map((d) => ({ ...d })) })),
     callLog: state.callLog.map((call) => ({ ...call, args: { ...call.args } })),
   };
 }
 
 export function deserializeState(data: SerializedSimulationState): SimulationState {
-  if (data.schemaVersion !== STATE_SCHEMA_VERSION) {
+  if (data.schemaVersion !== 1 && data.schemaVersion !== STATE_SCHEMA_VERSION) {
     throw new Error(`Unsupported simulation state schemaVersion: ${String(data.schemaVersion)}`);
   }
+  if (data.flags !== undefined && (typeof data.flags !== "object" || data.flags === null || Array.isArray(data.flags) || !Object.values(data.flags).every(v => typeof v === "boolean"))) throw new Error("Invalid state flags");
+  if (data.permitNonces !== undefined && (typeof data.permitNonces !== "object" || data.permitNonces === null || Array.isArray(data.permitNonces) || !Object.values(data.permitNonces).every(v => Number.isSafeInteger(v) && v >= 0))) throw new Error("Invalid permit nonces");
   const accounts: Record<Address, Account> = {};
   for (const [address, account] of Object.entries(data.accounts)) {
     accounts[address] = { ...account, ethBalanceWei: BigInt(account.ethBalanceWei) };
@@ -331,13 +343,15 @@ export function deserializeState(data: SerializedSimulationState): SimulationSta
     allowances[key] = BigInt(raw);
   }
   return {
-    schemaVersion: data.schemaVersion,
+    schemaVersion: STATE_SCHEMA_VERSION,
     challengeId: data.challengeId,
     attemptId: data.attemptId,
     blockNumber: data.blockNumber,
     accounts,
     tokens,
     allowances,
+    flags: { ...data.flags },
+    permitNonces: Object.fromEntries(Object.entries(data.permitNonces ?? {}).map(([k,v]) => [k.toLowerCase(),v])),
     txLog: data.txLog.map((tx) => ({ ...tx, args: { ...tx.args }, stateDiff: tx.stateDiff.map((d) => ({ ...d })) })),
     callLog: data.callLog.map((call) => ({ ...call, args: { ...call.args } })),
   };

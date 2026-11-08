@@ -1,0 +1,417 @@
+{
+  "schemaVersion": 1,
+  "id": "15",
+  "title": "Permit署名：署名が承認になるとき",
+  "subtitle": "Permit署名：署名が承認になるとき",
+  "chapter": {
+    "bookChapter": 13,
+    "bookTitle": "Permit署名：署名が承認になるとき",
+    "section": "本の課題13-2"
+  },
+  "difficulty": 3,
+  "estimatedMinutes": 20,
+  "xp": 300,
+  "badges": [],
+  "forbiddenActions": [],
+  "gas": {
+    "permit": {
+      "gasUsed": 45000,
+      "gasPriceGwei": 20
+    }
+  },
+  "retryMessage": "手順とログを確認して、もう一度挑戦しよう。",
+  "goal": "正規のPermitでnonceを進め、流出済み署名を無効にする。",
+  "scenario": "あなたは500 USDCを持ち、現在のPermit nonceは7です。過去に偽サイトで攻撃者への無制限承認に署名してしまいました。今回はDEXへ200 USDCを許可する正規の署名を先に実行し、古い署名を使えなくしましょう。署名だけではallowanceもnonceも変わりません。",
+  "steps": [
+    "noncesで自分のnonceが7と確認する",
+    "allowanceで攻撃者への承認量0を読む",
+    "署名セクションで正規のDEX向けリクエストに署名する",
+    "正規の署名を選びpermitを実行する（DEX 200・nonce 8）",
+    "noncesで自分のnonceが8になったと確認する",
+    "流出した攻撃者の署名でpermitを試しINVALID_NONCEを体験する",
+    "攻撃者へのallowanceが0のままと確認する"
+  ],
+  "hints": [
+    "署名するだけでは承認は反映されません。署名を選んでpermitを送信しよう。",
+    "正規の署名と流出署名はどちらもnonce 7です。先に使われた1つだけが有効です。",
+    "nonceが8になると7の署名は使えません。攻撃者へのallowanceを最後に読み直そう。"
+  ],
+  "successMessage": "nonceの進行で流出署名が使えなくなることを確認できたね！",
+  "contracts": [
+    {
+      "address": "0x2222222222222222222222222222222222222222",
+      "name": "Practice USDC",
+      "symbol": "USDC",
+      "decimals": 6,
+      "label": "練習用USDC",
+      "isPractice": true
+    }
+  ],
+  "initialState": {
+    "userAddress": "0x1111111111111111111111111111111111111111",
+    "spenderAddresses": {
+      "dex": "0x4444444444444444444444444444444444444444",
+      "attacker": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "ethBalanceWei": "1000000000000000000",
+    "balances": {
+      "0x2222222222222222222222222222222222222222": {
+        "0x1111111111111111111111111111111111111111": "500000000"
+      }
+    },
+    "allowances": {},
+    "permitNonces": {
+      "0x2222222222222222222222222222222222222222": 7
+    }
+  },
+  "functions": [
+    {
+      "name": "nonces",
+      "kind": "read",
+      "description": "nonces",
+      "inputs": [
+        {
+          "name": "account",
+          "type": "address",
+          "description": "account（表示値）"
+        }
+      ]
+    },
+    {
+      "name": "allowance",
+      "kind": "read",
+      "description": "allowance",
+      "inputs": [
+        {
+          "name": "owner",
+          "type": "address",
+          "description": "owner（表示値）"
+        },
+        {
+          "name": "spender",
+          "type": "address",
+          "description": "spender（表示値）"
+        }
+      ]
+    },
+    {
+      "name": "balanceOf",
+      "kind": "read",
+      "description": "balanceOf",
+      "inputs": [
+        {
+          "name": "account",
+          "type": "address",
+          "description": "account（表示値）"
+        }
+      ]
+    },
+    {
+      "name": "permit",
+      "kind": "write",
+      "description": "署名済みリクエストを選んで承認を反映する。value・owner・spender・nonceは署名から使う。",
+      "inputs": [
+        {
+          "name": "value",
+          "type": "uint256",
+          "description": "署名済みリクエストを選んで承認を反映する。value・owner・spender・nonceは署名から使う。"
+        }
+      ],
+      "revertReasons": [
+        {
+          "code": "INVALID_NONCE",
+          "message": "署名のnonceが現在のnonceと一致しないよ。"
+        }
+      ]
+    }
+  ],
+  "permit": {
+    "token": "0x2222222222222222222222222222222222222222",
+    "preSigned": [
+      {
+        "id": "leaked",
+        "owner": "0x1111111111111111111111111111111111111111",
+        "spender": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "spenderLabel": "攻撃者",
+        "value": "maxUint256",
+        "nonce": 7,
+        "deadline": "2026-12-31 23:59 UTC（表示のみ）",
+        "origin": "先月、偽のエアドロップサイトで署名してしまったもの",
+        "hostile": true
+      }
+    ],
+    "ownRequest": {
+      "id": "own",
+      "owner": "0x1111111111111111111111111111111111111111",
+      "spender": "0x4444444444444444444444444444444444444444",
+      "spenderLabel": "練習用DEX",
+      "value": "200",
+      "nonce": 7,
+      "deadline": "2026-12-31 23:59 UTC（表示のみ）",
+      "origin": "今回のswapのために自分で作る署名"
+    }
+  },
+  "questions": [
+    {
+      "questionId": "q15",
+      "kind": "choice",
+      "prompt": "なぜ攻撃者の流出署名が使えなくなった？",
+      "options": [
+        {
+          "optionId": "price",
+          "label": "正規のpermitでnonceが進んだため"
+        },
+        {
+          "optionId": "wrong",
+          "label": "署名しただけで攻撃者の署名が削除されたため"
+        }
+      ],
+      "correctOptionId": "price"
+    }
+  ],
+  "passCondition": {
+    "op": "and",
+    "conditions": [
+      {
+        "type": "actionSequence",
+        "sequence": [
+          {
+            "functionName": "nonces",
+            "kind": "read",
+            "contract": "0x2222222222222222222222222222222222222222",
+            "args": {
+              "account": "user"
+            },
+            "returnRaw": "7"
+          },
+          {
+            "functionName": "allowance",
+            "kind": "read",
+            "contract": "0x2222222222222222222222222222222222222222",
+            "args": {
+              "owner": "user",
+              "spender": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "returnRaw": "0"
+          },
+          {
+            "functionName": "signPermit",
+            "kind": "sign",
+            "contract": "0x2222222222222222222222222222222222222222",
+            "args": {
+              "signatureId": "own"
+            }
+          },
+          {
+            "functionName": "permit",
+            "kind": "write",
+            "contract": "0x2222222222222222222222222222222222222222",
+            "args": {
+              "signatureId": "own",
+              "spender": "0x4444444444444444444444444444444444444444",
+              "valueRaw": "200000000",
+              "nonce": "7"
+            }
+          },
+          {
+            "functionName": "nonces",
+            "kind": "read",
+            "contract": "0x2222222222222222222222222222222222222222",
+            "args": {
+              "account": "user"
+            },
+            "returnRaw": "8"
+          },
+          {
+            "functionName": "permit",
+            "kind": "write",
+            "contract": "0x2222222222222222222222222222222222222222",
+            "args": {
+              "signatureId": "leaked",
+              "spender": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "nonce": "7"
+            },
+            "status": 0
+          },
+          {
+            "functionName": "allowance",
+            "kind": "read",
+            "contract": "0x2222222222222222222222222222222222222222",
+            "args": {
+              "owner": "user",
+              "spender": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "returnRaw": "0"
+          }
+        ]
+      },
+      {
+        "type": "actionFailed",
+        "functionName": "permit",
+        "revertCode": "INVALID_NONCE"
+      },
+      {
+        "type": "allowanceEquals",
+        "token": "0x2222222222222222222222222222222222222222",
+        "owner": "user",
+        "spender": "0x4444444444444444444444444444444444444444",
+        "expectedDisplay": "200",
+        "expectedRaw": "200000000"
+      },
+      {
+        "type": "allowanceEquals",
+        "token": "0x2222222222222222222222222222222222222222",
+        "owner": "user",
+        "spender": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "expectedDisplay": "0",
+        "expectedRaw": "0"
+      },
+      {
+        "type": "quizCorrect",
+        "questionId": "q15"
+      }
+    ]
+  },
+  "stepChecks": [
+    {
+      "condition": {
+        "type": "actionSequence",
+        "sequence": [
+          {
+            "functionName": "nonces",
+            "kind": "read",
+            "contract": "0x2222222222222222222222222222222222222222",
+            "args": {
+              "account": "user"
+            },
+            "returnRaw": "7"
+          }
+        ]
+      }
+    },
+    {
+      "condition": {
+        "type": "actionSequence",
+        "sequence": [
+          {
+            "functionName": "allowance",
+            "kind": "read",
+            "contract": "0x2222222222222222222222222222222222222222",
+            "args": {
+              "owner": "user",
+              "spender": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "returnRaw": "0"
+          }
+        ]
+      }
+    },
+    {
+      "condition": {
+        "type": "actionSequence",
+        "sequence": [
+          {
+            "functionName": "signPermit",
+            "kind": "sign",
+            "contract": "0x2222222222222222222222222222222222222222",
+            "args": {
+              "signatureId": "own"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "condition": {
+        "type": "actionSequence",
+        "sequence": [
+          {
+            "functionName": "permit",
+            "kind": "write",
+            "contract": "0x2222222222222222222222222222222222222222",
+            "args": {
+              "signatureId": "own",
+              "spender": "0x4444444444444444444444444444444444444444",
+              "valueRaw": "200000000",
+              "nonce": "7"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "condition": {
+        "type": "actionSequence",
+        "sequence": [
+          {
+            "functionName": "permit",
+            "kind": "write",
+            "contract": "0x2222222222222222222222222222222222222222",
+            "args": {
+              "signatureId": "own",
+              "spender": "0x4444444444444444444444444444444444444444",
+              "valueRaw": "200000000",
+              "nonce": "7"
+            }
+          },
+          {
+            "functionName": "nonces",
+            "kind": "read",
+            "contract": "0x2222222222222222222222222222222222222222",
+            "args": {
+              "account": "user"
+            },
+            "returnRaw": "8"
+          }
+        ]
+      }
+    },
+    {
+      "condition": {
+        "type": "actionSequence",
+        "sequence": [
+          {
+            "functionName": "permit",
+            "kind": "write",
+            "contract": "0x2222222222222222222222222222222222222222",
+            "args": {
+              "signatureId": "leaked",
+              "spender": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "nonce": "7"
+            },
+            "status": 0,
+            "revertCode": "INVALID_NONCE"
+          }
+        ]
+      }
+    },
+    {
+      "condition": {
+        "type": "actionSequence",
+        "sequence": [
+          {
+            "functionName": "permit",
+            "kind": "write",
+            "contract": "0x2222222222222222222222222222222222222222",
+            "args": {
+              "signatureId": "leaked",
+              "spender": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "nonce": "7"
+            },
+            "status": 0
+          },
+          {
+            "functionName": "allowance",
+            "kind": "read",
+            "contract": "0x2222222222222222222222222222222222222222",
+            "args": {
+              "owner": "user",
+              "spender": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "returnRaw": "0"
+          }
+        ]
+      }
+    }
+  ]
+}

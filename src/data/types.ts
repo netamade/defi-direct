@@ -1,3 +1,4 @@
+import type { PermitDefinition } from "../engine/permits";
 // 課題JSON・バッジJSONの型定義（設計書 3.2）
 //
 // フェーズ3で固定する種類（フェーズ5では変更しない。設計書 5.3 フェーズ3）:
@@ -42,7 +43,7 @@ export interface QuestionDefinition {
 
 export interface SequenceStep {
   functionName: string;
-  kind?: "read" | "write"; // 省略時は関数定義のkindで判定する
+  kind?: "read" | "write" | "sign"; // 省略時は関数定義のkindで判定する
   contract?: string; // トークン（コントラクト）アドレス。指定時は一致必須
   args?: Record<string, string>; // spender・token・amountRaw等。指定したキーのみ一致必須
   returnRaw?: string; // Readステップの場合の返却値raw。指定時はcallLogの返却値と一致必須
@@ -140,6 +141,9 @@ export interface ChallengeDefinition {
   gas: Record<string, { gasUsed: number; gasPriceGwei: number }>; // すべて疑似値
   swapQuoteRate?: number; // 参考見積もりレート。省略時はswapRate
   swapRate?: number; // 表示値ベースのレート。03では1
+  permit?: PermitDefinition;
+  airdrop?: { distributor: Address; token: Address; root: string; distribution?: { label: string; address: Address; amount: string }[]; publicProofs?: { label: string; proof: string[] }[] };
+  vault?: { asset: Address; shareToken: Address };
   swap?: SwapDefinition; // swap を使う課題では必須（ローダーで検証する）
   questions?: QuestionDefinition[];
   passCondition: PassCondition;

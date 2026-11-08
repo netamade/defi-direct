@@ -8,8 +8,8 @@ import { ProgressStore, type StorageLike } from "../src/store/progressStore";
 import { SimulationStore } from "../src/store/simulationStore";
 const json = (path: string) => JSON.parse(readFileSync(new URL(path, import.meta.url), "utf8"));
 const data = buildLoadedData({
-  challengeFiles: Object.fromEntries(readdirSync(new URL("../data/challenges", import.meta.url)).filter(f => f !== "index.json").map(f => [f, json(`../data/challenges/${f}`)])),
-  indexRaw: json("../data/challenges/index.json"), badgesRaw: json("../data/badges.json"),
+  challengeFiles: Object.fromEntries(readdirSync(new URL("../data/challenges", import.meta.url)).filter(f => f !== "index.json" && Number(f.replace(".json", "")) <= 12).map(f => [f, json(`../data/challenges/${f}`)])),
+  indexRaw: { ...json("../data/challenges/index.json"), challenges: json("../data/challenges/index.json").challenges.filter((c: { id: string }) => Number(c.id) <= 12) }, badgesRaw: json("../data/badges.json"),
 });
 const U = "0x" + "1".repeat(40), C = "0x" + "2".repeat(40), F = "0x" + "3".repeat(40);
 function session(id: string) {

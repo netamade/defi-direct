@@ -69,6 +69,23 @@ export function renderChallengePanel(
   root.append(text("h2", "シナリオ"));
   root.append(text("p", def.scenario));
 
+  if (def.airdrop) {
+    root.append(text("h2", "公開配布リスト"));
+    const table = el("table", "airdrop-list");
+    table.append(el("thead", undefined, [el("tr", undefined, [el("th", undefined, ["割当"]), el("th", undefined, ["アドレス"]), el("th", undefined, ["AIR"])])]));
+    const body = el("tbody");
+    for (const row of def.airdrop.distribution ?? []) body.append(el("tr", undefined, [el("td", undefined, [row.label]), el("td", undefined, [row.address]), el("td", undefined, [row.amount])]));
+    table.append(body); root.append(table);
+    root.append(text("h3", "公開リスト：proof"));
+    for (const entry of def.airdrop.publicProofs ?? []) {
+      root.append(text("h4", entry.label));
+      const area = document.createElement("textarea");
+      area.readOnly = true; area.rows = 4; area.className = "input-text";
+      area.value = entry.proof.join("\n"); area.setAttribute("aria-label", `${entry.label}の公開proof`);
+      root.append(area);
+    }
+  }
+
   // 手順チェックリスト（自動チェック）
   root.append(text("h2", "手順チェックリスト"));
   const list = el("ul", "checklist");

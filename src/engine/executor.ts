@@ -1,3 +1,5 @@
+import type { PermitDefinition, PermitRequest, SignatureRecord } from "./permits";
+import { verifyProof } from "./keccak";
 // 疑似実行エンジン（設計書 第2節）
 //
 // 原則（設計書 2.1）:
@@ -19,7 +21,7 @@ import {
   type StateDiff,
   type TxRecord,
 } from "./state";
-import { formatUnits, MAX_UINT256, rateToRational, swapAmountOutRaw, type Rational } from "./units";
+import { formatUnits, parseUnits, MAX_UINT256, rateToRational, swapAmountOutRaw, type Rational } from "./units";
 import { INSUFFICIENT_GAS_MESSAGE, ZERO_ADDRESS, type RevertCode } from "./validation";
 
 export interface GasConfig {
@@ -50,6 +52,9 @@ export interface EngineConfig {
   gas?: Record<string, GasConfig>;
   swapQuoteRate?: number | string; // 参考見積もり。省略時は実行レートと同じ
   swapRate?: number | string; // 表示値ベース。既定 1
+  permit?: PermitDefinition;
+  airdrop?: { distributor: Address; token: Address; root: string };
+  vault?: { asset: Address; shareToken: Address };
   swap?: SwapConfig;
 }
 
@@ -73,10 +78,16 @@ export function engineConfigFromChallenge(def: {
   gas?: Record<string, GasConfig>;
   swapQuoteRate?: number;
   swapRate?: number;
+  permit?: PermitDefinition;
+  airdrop?: { distributor: Address; token: Address; root: string };
+  vault?: { asset: Address; shareToken: Address };
   swap?: SwapFieldDefinition;
 }): EngineConfig {
   const config: EngineConfig = {
     challengeId: def.id,
+    ...(def.permit ? { permit: def.permit } : {}),
+    ...(def.airdrop ? { airdrop: def.airdrop } : {}),
+    ...(def.vault ? { vault: def.vault } : {}),
     contracts: def.contracts,
     initialState: def.initialState,
     ...(def.gas ? { gas: def.gas } : {}),
@@ -90,8 +101,8 @@ export function engineConfigFromChallenge(def: {
   return config;
 }
 
-export type ReadFunctionName = "name" | "symbol" | "decimals" | "totalSupply" | "balanceOf" | "allowance" | "getAmountsOut";
-export type WriteFunctionName = "approve" | "transfer" | "transferFrom" | "deposit" | "withdraw" | "swapExactUSDCForTKN";
+export type ReadFunctionName = "name" | "symbol" | "decimals" | "totalSupply" | "balanceOf" | "allowance" | "getAmountsOut" | "nonces" | "isClaimed" | "totalAssets" | "convertToShares" | "convertToAssets" | "previewDeposit" | "previewRedeem";
+export type WriteFunctionName = "approve" | "transfer" | "transferFrom" | "deposit" | "permit" | "claim" | "redeem" | "withdraw" | "swapExactUSDCForTKN";
 
 export type ReadResult =
   | { ok: true; record: CallRecord; valueRaw: bigint; valueDisplay: string }
@@ -108,16 +119,21 @@ function formatId(prefix: string, n: number): string {
 export class Engine {
   readonly config: EngineConfig;
   state: SimulationState;
+  signedPermits: PermitRequest[];
+  signatureLog: SignatureRecord[] = [];
   private readonly swapRateRational: Rational;
 
   constructor(config: EngineConfig) {
     this.config = config;
+    this.signedPermits = (config.permit?.preSigned ?? []).map(p => ({ ...p }));
     this.state = createInitialState(config.challengeId, config.contracts, config.initialState, 1);
     this.swapRateRational = rateToRational(config.swapRate ?? 1);
   }
 
   /** 課題リセット：初期状態を再生成し attemptId を+1する（進捗には触れない。設計書 2.7） */
   reset(): void {
+    this.signatureLog = [];
+    this.signedPermits = (this.config.permit?.preSigned ?? []).map(p => ({ ...p }));
     this.state = resetState(this.state, this.config.contracts, this.config.initialState);
   }
 
@@ -139,7 +155,12 @@ export class Engine {
 
   read(functionName: ReadFunctionName, contract: Address, args: Record<string, string> = {}): ReadResult {
     const swap = this.config.swap;
-    const token = functionName === "getAmountsOut"
+    const vault = this.config.vault;
+    const vaultRead = ["totalAssets", "convertToShares", "convertToAssets", "previewDeposit", "previewRedeem"].includes(functionName);
+    if (vaultRead && (!vault || contract !== vault.shareToken)) return { ok: false, code: "UNKNOWN_FUNCTION", message: "この課題・コントラクトではボールトReadは使えません" };
+    const airdrop = this.config.airdrop;
+    if (functionName === "isClaimed" && (!airdrop || contract !== airdrop.distributor)) return { ok: false, code: "UNKNOWN_FUNCTION", message: "この契約ではisClaimedは使えません" };
+    const token = functionName === "isClaimed" ? this.state.tokens[airdrop!.token] : functionName === "getAmountsOut"
       ? (swap && contract === swap.dexAddress ? this.state.tokens[swap.tokenOut] : undefined)
       : this.state.tokens[contract];
     if (!token) {
@@ -150,6 +171,26 @@ export class Engine {
     let valueRaw: bigint;
     let valueDisplay: string;
     switch (functionName) {
+      case "nonces":
+        if (!this.config.permit || contract !== this.config.permit.token) return { ok: false, code: "UNKNOWN_FUNCTION", message: "この契約ではnoncesは使えません" };
+        valueRaw = (args["account"] ?? "").toLowerCase() === this.currentUser().toLowerCase() ? BigInt(this.state.permitNonces[contract.toLowerCase()] ?? 0) : 0n;
+        valueDisplay = valueRaw.toString();
+        break;
+      case "isClaimed":
+        // この疑似モデルは現在の1ユーザーについて請求状態を持つ。
+        return this.recordStringRead(functionName, contract, args,
+          (args["account"] ?? "").toLowerCase() === this.currentUser().toLowerCase() && this.state.flags[`claimed:${contract.toLowerCase()}`] ? "true" : "false");
+      case "totalAssets":
+      case "convertToShares":
+      case "convertToAssets":
+      case "previewDeposit":
+      case "previewRedeem": {
+        const toShares = functionName === "convertToShares" || functionName === "previewDeposit";
+        valueRaw = functionName === "totalAssets" ? this.getBalance(vault!.asset, vault!.shareToken)
+          : this.convertVault(BigInt(args[toShares ? "assetsRaw" : "sharesRaw"] ?? "0"), toShares);
+        valueDisplay = formatUnits(valueRaw, this.requireToken(toShares ? vault!.shareToken : vault!.asset).decimals);
+        break;
+      }
       case "getAmountsOut": {
         // この疑似DEXは固定ペア。配列ではなく最終受取量を数値で返す。
         const tokenIn = this.requireToken(swap!.tokenIn);
@@ -241,6 +282,13 @@ export class Engine {
    * 表示値→raw値の変換と入力検証は呼び出し側（UI／validation）の責務。
    */
   write(functionName: WriteFunctionName, contract: Address, args: Record<string, string>): WriteResult {
+    if (functionName === "permit") {
+      const permit = this.config.permit;
+      const signature = this.signedPermits.find(p => p.id === args["signatureId"]);
+      if (!permit || contract !== permit.token || !signature) throw new Error("署名済みのPermitを選んでください");
+      args = { signatureId: signature.id, owner: signature.owner, spender: signature.spender,
+        valueRaw: this.permitValue(signature).toString(), nonce: signature.nonce.toString() };
+    }
     const gas = this.gasFor(functionName);
     const gasFeeWei = BigInt(gas.gasUsed) * BigInt(gas.gasPriceGwei) * 1_000_000_000n;
     const userAddress = this.currentUser();
@@ -248,7 +296,7 @@ export class Engine {
     if (!user) throw new Error("現在の疑似アカウントが存在しません");
 
     // 送信前チェック：ガス代が疑似ETH残高を超える場合はブロックに含めない（設計書 2.5）
-    const valueWei = functionName === "deposit" ? BigInt(args["valueRaw"] ?? "0") : 0n;
+    const valueWei = functionName === "deposit" && !this.config.vault ? BigInt(args["valueRaw"] ?? "0") : 0n;
     if (user.ethBalanceWei < gasFeeWei + valueWei) {
       return { kind: "preflight-failure", code: "INSUFFICIENT_GAS", message: valueWei > 0n ? "疑似ETHが送るvalueとガス代の合計に足りないよ。valueを減らしてみよう。" : INSUFFICIENT_GAS_MESSAGE };
     }
@@ -298,9 +346,9 @@ export class Engine {
   }
 
   private nextSequence(): number {
-    // sequence は試行内で txLog と callLog を通した通し番号。状態は試行ごとに
-    // 再生成されるため、両ログの件数合計から導出できる。
-    return this.state.txLog.length + this.state.callLog.length + 1;
+    // 署名・Read・Writeで共通の順序。署名記録を保存しないため、復元後も
+    // 履歴に残ったsequenceの最大値から再開し、番号の重複を避ける。
+    return Math.max(0, ...this.state.txLog.map(r => r.sequence), ...this.state.callLog.map(r => r.sequence), ...this.signatureLog.map(r => r.sequence)) + 1;
   }
 
   private gasFor(functionName: string): GasConfig {
@@ -321,7 +369,67 @@ export class Engine {
     const revert = (revertCode: RevertCode) => ({ revertCode, apply: () => [] as StateDiff[] });
 
     switch (functionName) {
+      case "permit": {
+        const token = this.config.permit!.token;
+        const nonce = this.state.permitNonces[token.toLowerCase()] ?? 0;
+        if (Number(args["nonce"]) !== nonce) return revert("INVALID_NONCE");
+        const owner = args["owner"]!, spender = args["spender"]!, value = BigInt(args["valueRaw"]!);
+        return ok(() => {
+          const key = allowanceKey(owner, spender, token), before = this.state.allowances[key] ?? 0n;
+          this.state.allowances[key] = value;
+          this.state.permitNonces[token.toLowerCase()] = nonce + 1;
+          return [{ kind: "allowance", token, account: owner, spender, beforeRaw: before.toString(), afterRaw: value.toString() }];
+        });
+      }
+      case "claim": {
+        const drop = this.config.airdrop;
+        if (!drop || contract !== drop.distributor) throw new Error("この課題・契約ではclaimは使えません");
+        const key = `claimed:${drop.distributor.toLowerCase()}`;
+        if (this.state.flags[key]) return revert("ALREADY_CLAIMED");
+        const amount = BigInt(args["amountRaw"] ?? "0");
+        let proof: unknown;
+        try { proof = JSON.parse(args["proof"] ?? "[]"); } catch { return revert("INVALID_PROOF"); }
+        if (!Array.isArray(proof) || !proof.every(p => typeof p === "string") || !verifyProof(userAddress, amount, proof, drop.root)) return revert("INVALID_PROOF");
+        const balance = this.getBalance(drop.token, drop.distributor);
+        if (balance < amount) return revert("INSUFFICIENT_BALANCE");
+        return ok(() => {
+          const before = this.getBalance(drop.token, userAddress);
+          this.requireToken(drop.token).balances[drop.distributor] = balance - amount;
+          this.requireToken(drop.token).balances[userAddress] = before + amount;
+          this.state.flags[key] = true;
+          return [
+            { kind: "balance", token: drop.token, account: drop.distributor, beforeRaw: balance.toString(), afterRaw: (balance - amount).toString() },
+            { kind: "balance", token: drop.token, account: userAddress, beforeRaw: before.toString(), afterRaw: (before + amount).toString() },
+          ];
+        });
+      }
+      case "redeem":
       case "deposit":
+        if (this.config.vault) {
+          const vault = this.config.vault;
+          if (contract !== vault.shareToken) throw new Error("ボールトのコントラクトを指定してください");
+          const depositing = functionName === "deposit";
+          const amount = BigInt(args[depositing ? "assetsRaw" : "sharesRaw"] ?? "0");
+          const converted = this.convertVault(amount, depositing);
+          const assets = depositing ? amount : converted;
+          const shares = depositing ? converted : amount;
+          const share = this.requireToken(vault.shareToken);
+          if (this.getBalance(depositing ? vault.asset : vault.shareToken, userAddress) < amount ||
+              (!depositing && this.getBalance(vault.asset, vault.shareToken) < assets)) return revert("INSUFFICIENT_BALANCE");
+          return ok(() => {
+            const delta = depositing ? 1n : -1n;
+            const changes: [Address, Address, bigint][] = [[vault.asset, userAddress, -assets * delta], [vault.asset, vault.shareToken, assets * delta], [vault.shareToken, userAddress, shares * delta]];
+            const diffs = changes.map(([token, account, change]) => {
+              const before = this.getBalance(token, account);
+              this.requireToken(token).balances[account] = before + change;
+              return { kind: "balance" as const, token, account, beforeRaw: before.toString(), afterRaw: (before + change).toString() };
+            });
+            share.totalSupplyRaw += shares * delta;
+            return diffs;
+          });
+        }
+        if (functionName === "redeem") throw new Error("この課題ではredeemは使えません");
+        // WETHのpayable depositは既存のまま。
       case "withdraw": {
         const token = this.requireToken(contract);
         const user = this.state.accounts[userAddress]!;
@@ -471,6 +579,34 @@ export class Engine {
       default:
         throw new Error(`未対応のWrite関数です: ${String(functionName)}`);
     }
+  }
+
+  permitValue(signature: PermitRequest): bigint {
+    const token = this.requireToken(this.config.permit!.token);
+    return signature.value === "maxUint256" ? MAX_UINT256 : parseUnits(signature.value, token.decimals);
+  }
+
+  signPermit(): void {
+    const permit = this.config.permit;
+    if (!permit) throw new Error("この課題では署名は使えません");
+    const request = permit.ownRequest;
+    if (this.signedPermits.some(p => p.id === request.id)) return;
+    this.signedPermits.push({ ...request });
+    this.signatureLog.push({ type: "sign", functionName: "signPermit", attemptId: this.state.attemptId,
+      sequence: this.nextSequence(), contract: permit.token,
+      args: { signatureId: request.id, owner: request.owner, spender: request.spender, valueRaw: this.permitValue(request).toString(), nonce: request.nonce.toString() } });
+  }
+
+  /** 現在の資産残高と発行済みシェアから換算。空ボールトはdecimalsに合わせ1:1で開始。 */
+  convertVault(amount: bigint, toShares: boolean): bigint {
+    const vault = this.config.vault;
+    if (!vault) throw new Error("この課題ではボールトは使えません");
+    const asset = this.requireToken(vault.asset), share = this.requireToken(vault.shareToken);
+    const assets = this.getBalance(vault.asset, vault.shareToken), shares = share.totalSupplyRaw;
+    if (assets === 0n || shares === 0n) return toShares
+      ? amount * 10n ** BigInt(share.decimals) / 10n ** BigInt(asset.decimals)
+      : amount * 10n ** BigInt(asset.decimals) / 10n ** BigInt(share.decimals);
+    return toShares ? amount * shares / assets : amount * assets / shares;
   }
 
   private requireToken(contract: Address) {

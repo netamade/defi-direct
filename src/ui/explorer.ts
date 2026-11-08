@@ -1,3 +1,4 @@
+import { parseBytes32Array } from "../engine/keccak";
 // 疑似エクスプローラー（設計書 第1節 S-05〜S-07）
 // - S-05 Read Contract タブ：状態を変えない読み取り。成功したReadはcallLogに残り採点の証拠になる。
 // - S-06 Write Contract タブ：送信前確認モーダル必須。forbiddenAction は block / warn のガード。
@@ -20,6 +21,13 @@ import { openModal, showToast } from "./feedback";
 import type { ActionOutcome, PlaySession, WritePreview } from "./session";
 
 const READ_FUNCTIONS: { name: ReadFunctionName; signature: string; fallbackDescription: string }[] = [
+  { name: "nonces", signature: "nonces(address account)", fallbackDescription: "Permit署名の現在のnonceを返す" },
+  { name: "isClaimed", signature: "isClaimed(address account)", fallbackDescription: "自分の請求済み状態を返す" },
+  { name: "totalAssets", signature: "totalAssets()", fallbackDescription: "ボールトの現在の残高から換算する" },
+  { name: "convertToShares", signature: "convertToShares(uint256 assets)", fallbackDescription: "ボールトの現在の残高から換算する" },
+  { name: "convertToAssets", signature: "convertToAssets(uint256 shares)", fallbackDescription: "ボールトの現在の残高から換算する" },
+  { name: "previewDeposit", signature: "previewDeposit(uint256 assets)", fallbackDescription: "ボールトの現在の残高から換算する" },
+  { name: "previewRedeem", signature: "previewRedeem(uint256 shares)", fallbackDescription: "ボールトの現在の残高から換算する" },
   { name: "getAmountsOut", signature: "getAmountsOut(uint256 amountIn)", fallbackDescription: "固定ペアの参考受取量を返す（この疑似DEXでは最終受取量のみ）" },
   { name: "name", signature: "name()", fallbackDescription: "トークンの名前を返す" },
   { name: "symbol", signature: "symbol()", fallbackDescription: "トークンのシンボル（略称）を返す" },
@@ -48,6 +56,8 @@ export class ExplorerView {
   private logFilter: "all" | "tx" | "call" = "all";
   private logsBox: HTMLElement | null = null;
   private latestBox: HTMLElement | null = null;
+  private signatureBox: HTMLElement | null = null;
+  private readonly permitSelects: HTMLSelectElement[] = [];
   private readonly revertQuizDone = new Set<string>();
 
   constructor(session: PlaySession, callbacks: ExplorerCallbacks) {
@@ -81,6 +91,10 @@ export class ExplorerView {
     readTab.addEventListener("click", () => showTab("read"));
     writeTab.addEventListener("click", () => showTab("write"));
     tabs.append(readTab, writeTab);
+    if (session.def.permit) {
+      this.signatureBox = el("section", "signature-section");
+      root.append(this.signatureBox);
+    }
     root.append(tabs);
 
     readPanel.append(this.buildReadPanel());
@@ -128,6 +142,42 @@ export class ExplorerView {
   refreshDynamic(): void {
     this.refreshLatest();
     this.refreshLogs();
+    this.refreshSignatures();
+  }
+
+  private refreshSignatures(): void {
+    const permit = this.session.def.permit, box = this.signatureBox;
+    if (!permit || !box) return;
+    box.replaceChildren(text("h3", "オフチェーン署名（疑似モデル）"),
+      text("p", "署名はガス不要で、トランザクションにはなりません。署名済みデータと署名の記録はこのセッション内のみです。再読み込み後はリセットしてやり直してください。deadlineは表示のみで、期限切れの検証は行いません。", "note"));
+    for (const request of [...permit.preSigned, permit.ownRequest]) {
+      const signed = this.session.signedPermits.some(p => p.id === request.id);
+      const card = el("article", "signature-card");
+      card.append(text("h4", `${request.spenderLabel} — ${signed ? "署名済み" : "未署名"}`),
+        text("p", `owner：${request.owner}`), text("p", `spender：${request.spender}`),
+        text("p", `金額：${request.value === "maxUint256" ? "無制限（maxUint256）" : request.value} ／ nonce：${request.nonce}`),
+        text("p", `deadline：${request.deadline}`), text("p", `出所：${request.origin}`));
+      if (request.hostile) card.append(text("p", "流出した署名：このまま使われると攻撃者への承認になります。", "warn-text"));
+      if (request.id === permit.ownRequest.id && !signed) {
+        const button = document.createElement("button"); button.type = "button"; button.className = "btn btn-primary"; button.textContent = "署名する（ガス不要・疑似）";
+        button.addEventListener("click", () => {
+          const outcome = this.session.signPermit(); this.refreshDynamic(); this.callbacks.onAction(outcome);
+        });
+        card.append(button);
+      }
+      box.append(card);
+    }
+    for (const select of this.permitSelects) {
+      const value = select.value;
+      select.replaceChildren();
+      const placeholder = document.createElement("option"); placeholder.value = ""; placeholder.textContent = "使用する署名を選択"; select.append(placeholder);
+      for (const signature of this.session.signedPermits) {
+        const option = document.createElement("option"); option.value = signature.id;
+        option.textContent = `${signature.spenderLabel} ／ ${signature.value === "maxUint256" ? "無制限" : signature.value} ／ nonce ${signature.nonce}`;
+        select.append(option);
+      }
+      select.value = value;
+    }
   }
 
   // --- S-05 Read ---
@@ -210,7 +260,7 @@ export class ExplorerView {
 
     // 関数一覧（アコーディオン）
     const list = el("div", "function-list");
-    READ_FUNCTIONS.filter(fn => fn.name !== "getAmountsOut" || this.session.def.functions.some(f => f.name === fn.name)).forEach((fn) => {
+    READ_FUNCTIONS.filter(fn => ["name", "symbol", "decimals", "totalSupply", "balanceOf", "allowance"].includes(fn.name) || this.session.def.functions.some(f => f.name === fn.name)).forEach((fn) => {
       list.append(this.buildReadFunction(fn, fn.name === "decimals"));
     });
     panel.append(list);
@@ -252,7 +302,7 @@ export class ExplorerView {
     body.append(text("p", defFn?.description ?? fn.fallbackDescription, "function-desc"));
 
     const selects = new Map<string, HTMLSelectElement>();
-    if (fn.name === "balanceOf") {
+    if (fn.name === "balanceOf" || fn.name === "isClaimed" || fn.name === "nonces") {
       const label = el("label", "field-label", ["account（残高を調べるアドレス）"]);
       const select = this.addressSelect(this.addressOptions(false), this.session.userAddress);
       selects.set("account", select);
@@ -276,8 +326,8 @@ export class ExplorerView {
     }
 
     let quoteInput: HTMLInputElement | null = null;
-    if (fn.name === "getAmountsOut") {
-      const label = el("label", "field-label", ["amountIn（支払うUSDC・表示値）"]);
+    if (fn.name === "getAmountsOut" || ["convertToShares", "convertToAssets", "previewDeposit", "previewRedeem"].includes(fn.name)) {
+      const label = el("label", "field-label", [fn.name === "getAmountsOut" ? "amountIn（表示値）" : `${fn.name === "convertToShares" || fn.name === "previewDeposit" ? "assets" : "shares"}（表示値）`]);
       quoteInput = document.createElement("input");
       quoteInput.type = "text";
       quoteInput.inputMode = "decimal";
@@ -306,6 +356,18 @@ export class ExplorerView {
         args["amountInRaw"] = checked.value.toString();
         contract = swap.dexAddress;
       }
+      if (this.session.def.vault && ["totalAssets", "convertToShares", "convertToAssets", "previewDeposit", "previewRedeem"].includes(fn.name)) {
+        const vault = this.session.def.vault;
+        contract = vault.shareToken;
+        if (quoteInput) {
+          const toShares = fn.name === "convertToShares" || fn.name === "previewDeposit";
+          const checked = validateAmountInput(quoteInput.value, this.session.state.tokens[toShares ? vault.asset : vault.shareToken]!.decimals);
+          if (!checked.ok) { showToast(checked.message); return; }
+          args[toShares ? "assetsRaw" : "sharesRaw"] = checked.value.toString();
+        }
+      }
+      if (fn.name === "nonces" && this.session.def.permit) contract = this.session.def.permit.token;
+      if (fn.name === "isClaimed" && this.session.def.airdrop) contract = this.session.def.airdrop.distributor;
       const { result, ...outcome } = this.session.doRead(fn.name, contract, args);
       if (result.ok) {
         const line = this.formatReadResult(fn.name, result.valueDisplay, result.record);
@@ -324,10 +386,17 @@ export class ExplorerView {
     return item;
   }
 
+  private readResultToken(name: string, contract: string): string {
+    if (name === "getAmountsOut") return this.session.def.swap?.tokenOut ?? contract;
+    const vault = this.session.def.vault;
+    if (vault && ["totalAssets", "convertToAssets", "previewRedeem"].includes(name)) return vault.asset;
+    return contract;
+  }
+
   private formatReadResult(functionName: string, valueDisplay: string, record: CallRecord): string {
-    const token = this.session.state.tokens[record.functionName === "getAmountsOut" ? (this.session.def.swap?.tokenOut ?? "") : record.contract];
+    const token = this.session.state.tokens[this.readResultToken(record.functionName, record.contract)];
     if (!token) return `${functionName} → ${valueDisplay}`;
-    if (functionName === "name" || functionName === "symbol" || functionName === "decimals") {
+    if (functionName === "name" || functionName === "symbol" || functionName === "decimals" || functionName === "isClaimed" || functionName === "nonces") {
       return `${functionName} → ${valueDisplay}`;
     }
     return `${functionName} → ${amountTriple(BigInt(record.returnValueRaw || "0"), token.decimals, token.symbol)}`;
@@ -381,6 +450,14 @@ export class ExplorerView {
     // 対象コントラクトの切替に追従するため、decimals / symbol は都度引く
     const amountSpec = (name: string): { decimals: number; symbol: string } => {
       if (name === "value") return { decimals: 18, symbol: "ETH" };
+      if (this.session.def.vault) {
+        const token = this.session.state.tokens[name === "assets" ? this.session.def.vault.asset : this.session.def.vault.shareToken]!;
+        return { decimals: token.decimals, symbol: token.symbol };
+      }
+      if (this.session.def.airdrop && fn.name === "claim") {
+        const token = this.session.state.tokens[this.session.def.airdrop.token]!;
+        return { decimals: token.decimals, symbol: token.symbol };
+      }
       const address = isSwap ? ((name === "amountOutMin" ? this.session.def.swap?.tokenOut : this.session.def.swap?.tokenIn) ?? "") : this.writeContract;
       const token = this.session.state.tokens[address];
       return { decimals: token?.decimals ?? 18, symbol: token?.symbol ?? "" };
@@ -404,7 +481,7 @@ export class ExplorerView {
     const amountInputs = new Map<string, HTMLInputElement>();
     const amountArgs = fn.inputs.filter(i => i.type === "uint256");
     if (fn.payable) amountArgs.push({ name: "value", description: "送るETH量（payable・表示値）", type: "uint256" });
-    for (const amountArg of amountArgs) {
+    for (const amountArg of fn.name === "permit" ? [] : amountArgs) {
       const label = el("label", "field-label", [`${amountArg.name}（${amountArg.description}）`]);
       const amountInput = document.createElement("input");
       amountInput.type = "text";
@@ -442,13 +519,26 @@ export class ExplorerView {
       }
     }
 
+    let permitSelect: HTMLSelectElement | undefined;
+    if (fn.name === "permit") {
+      const label = el("label", "field-label", ["使用する署名（署名の金額がvalueになります）"]);
+      permitSelect = document.createElement("select"); permitSelect.className = "input-select";
+      this.permitSelects.push(permitSelect); label.append(permitSelect); item.append(label);
+    }
+    const proofInputs = new Map<string, HTMLTextAreaElement>();
+    for (const input of fn.inputs.filter(i => i.type === "bytes32[]")) {
+      const label = el("label", "field-label", [`${input.name}（改行区切りのbytes32[]）`]);
+      const area = document.createElement("textarea");
+      area.className = "input-text"; area.rows = 4;
+      proofInputs.set(input.name, area); label.append(area); item.append(label);
+    }
     const writeButton = document.createElement("button");
     writeButton.type = "button";
     writeButton.className = "btn btn-primary";
     writeButton.textContent = "Write（送信前の確認へ）";
     writeButton.addEventListener("click", () => {
       errorBox.hidden = true;
-      this.startWrite(fn, addressSelects, amountInputs, errorBox);
+      this.startWrite(fn, addressSelects, amountInputs, errorBox, proofInputs, permitSelect);
     });
     item.append(writeButton, errorBox);
     return item;
@@ -459,6 +549,8 @@ export class ExplorerView {
     addressSelects: Map<string, HTMLSelectElement>,
     amountInputs: Map<string, HTMLInputElement>,
     errorBox: HTMLElement,
+    proofInputs: Map<string, HTMLTextAreaElement>,
+    permitSelect?: HTMLSelectElement,
   ): void {
     const showError = (message: string) => {
       errorBox.textContent = message;
@@ -467,7 +559,15 @@ export class ExplorerView {
     const isSwap = fn.name === "swapExactUSDCForTKN";
     const args: Record<string, string> = {};
     let contract: Address = this.writeContract;
+    if (fn.name === "permit") {
+      if (!permitSelect?.value || !this.session.signedPermits.some(p => p.id === permitSelect.value)) { showError("署名済みのPermitを選んでください。"); return; }
+      args["signatureId"] = permitSelect.value;
+      contract = this.session.def.permit!.token;
+    }
 
+    for (const [name, input] of proofInputs) {
+      try { args[name] = JSON.stringify(parseBytes32Array(input.value)); } catch (error) { showError((error as Error).message); return; }
+    }
     for (const input of fn.inputs) {
       if (input.type === "address") {
         const select = addressSelects.get(input.name);
@@ -480,7 +580,7 @@ export class ExplorerView {
       }
     }
     for (const [name, input] of amountInputs) {
-      const tokenAddress = isSwap
+      const tokenAddress = this.session.def.vault ? (name === "assets" ? this.session.def.vault.asset : this.session.def.vault.shareToken) : this.session.def.airdrop && fn.name === "claim" ? this.session.def.airdrop.token : isSwap
         ? (name === "amountOutMin" ? this.session.def.swap?.tokenOut : this.session.def.swap?.tokenIn)
         : this.writeContract;
       const decimals = name === "value" ? 18 : (this.session.state.tokens[tokenAddress ?? ""]?.decimals ?? 18);
@@ -488,6 +588,8 @@ export class ExplorerView {
       if (!checked.ok) { showError(amountInputs.size > 1 ? `${name}：${checked.message}` : checked.message); return; }
       args[`${name}Raw`] = checked.value.toString();
     }
+    if (this.session.def.vault && (fn.name === "deposit" || fn.name === "redeem")) contract = this.session.def.vault.shareToken;
+    if (fn.name === "claim" && this.session.def.airdrop) contract = this.session.def.airdrop.distributor;
     if (isSwap) {
       contract = this.session.engine.config.swap?.dexAddress ?? contract;
     }
@@ -547,6 +649,14 @@ export class ExplorerView {
       list.append(el("dt", undefined, [label]), el("dd", undefined, [value]));
     };
     add("関数", fn.name);
+    if (fn.name === "permit") {
+      const signature = this.session.signedPermits.find(p => p.id === args["signatureId"]);
+      if (signature) {
+        add("owner", signature.owner); add("spender", `${signature.spenderLabel}：${signature.spender}`);
+        add("value", signature.value === "maxUint256" ? "無制限（maxUint256）" : signature.value);
+        add("署名nonce", String(signature.nonce)); add("出所", signature.origin);
+      }
+    }
     for (const [key, value] of Object.entries(args)) {
       add(key, value.length === 42 && value.startsWith("0x") ? pseudoAddressShort(value) : value);
     }
@@ -596,12 +706,12 @@ export class ExplorerView {
     }
     if (latest.call) {
       const record = latest.call;
-      const token = state.tokens[record.functionName === "getAmountsOut" ? (this.session.def.swap?.tokenOut ?? "") : record.contract];
+      const token = state.tokens[this.readResultToken(record.functionName, record.contract)];
       box.append(text("h4", `Read結果：${record.functionName}`));
       box.append(
         text(
           "p",
-          token && record.functionName !== "name" && record.functionName !== "symbol" && record.functionName !== "decimals"
+          token && record.functionName !== "name" && record.functionName !== "symbol" && record.functionName !== "decimals" && record.functionName !== "isClaimed" && record.functionName !== "nonces"
             ? amountTriple(BigInt(record.returnValueRaw || "0"), token.decimals, token.symbol)
             : `返却値：${record.returnValueDisplay}`,
         ),
@@ -645,7 +755,7 @@ export class ExplorerView {
   private describeDiff(diff: TxRecord["stateDiff"][number], functionName: string): string {
     const state = this.session.state;
     if (diff.kind === "eth") {
-      return `疑似ETH：${formatUnits(BigInt(diff.beforeRaw), 18)} ETH → ${formatUnits(BigInt(diff.afterRaw), 18)} ETH（${functionName === "deposit" || functionName === "withdraw" ? "valueの移動とガス代を含む" : "ガス代"}）`;
+      return `疑似ETH：${formatUnits(BigInt(diff.beforeRaw), 18)} ETH → ${formatUnits(BigInt(diff.afterRaw), 18)} ETH（${(functionName === "deposit" && !this.session.def.vault) || functionName === "withdraw" ? "valueの移動とガス代を含む" : "ガス代"}）`;
     }
     const token = diff.token ? state.tokens[diff.token] : undefined;
     if (!token) return `${diff.beforeRaw} → ${diff.afterRaw}`;

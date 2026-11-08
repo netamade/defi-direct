@@ -85,9 +85,15 @@ export type RevertCode =
   | "ZERO_ADDRESS_RECIPIENT"
   | "INSUFFICIENT_BALANCE"
   | "INSUFFICIENT_ALLOWANCE"
-  | "INSUFFICIENT_OUTPUT_AMOUNT";
+  | "INSUFFICIENT_OUTPUT_AMOUNT"
+  | "ALREADY_CLAIMED"
+  | "INVALID_PROOF"
+  | "INVALID_NONCE";
 
 export const REVERT_MESSAGES: Record<RevertCode, string> = {
+  ALREADY_CLAIMED: "このエアドロップは請求済みだよ。",
+  INVALID_PROOF: "送信者・金額・proofが配布リストのルートと一致しないよ。",
+  INVALID_NONCE: "署名のnonceが現在のnonceと一致しないよ。",
   INSUFFICIENT_OUTPUT_AMOUNT: "受け取り量がamountOutMinを下回るため止まったよ。見積もりと最低受取量を確かめよう。",
   ZERO_ADDRESS_SPENDER: "承認先にゼロアドレスは使えないよ。疑似DEXのアドレスを確かめてみよう。",
   ZERO_ADDRESS_RECIPIENT: "送り先にゼロアドレスは使えないよ。宛先を確かめてみよう。",
