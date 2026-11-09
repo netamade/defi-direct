@@ -40,7 +40,7 @@ type SharedStorage = ReturnType<typeof fakeStorage>;
 
 function newSession(storage: SharedStorage, id: string): PlaySession {
   const def = data.byId.get(id) as ChallengeDefinition;
-  const progressStore = new ProgressStore(storage, () => data.totalXp);
+  const progressStore = new ProgressStore(storage, () => ({ challengeXp: new Map(data.challenges.map(c => [c.id, c.xp])), badgeIds: new Set(data.badges.map(b => b.id)) }));
   const simStore = new SimulationStore(storage);
   return new PlaySession(data, def, progressStore, simStore);
 }
@@ -210,7 +210,7 @@ describe("E2Eフロー（PlaySession 経由＝画面操作と同じ経路）", (
       ...def,
       forbiddenActions: def.forbiddenActions.map((a) => ({ ...a, mode: "block" as const })),
     };
-    const progressStore = new ProgressStore(storage, () => data.totalXp);
+    const progressStore = new ProgressStore(storage, () => ({ challengeXp: new Map(data.challenges.map(c => [c.id, c.xp])), badgeIds: new Set(data.badges.map(b => b.id)) }));
     const session = new PlaySession(data, blockedDef, progressStore, new SimulationStore(storage));
     const request = session.requestWrite("approve", USDC, { spender: DEX, amountRaw: MAX });
     expect(request.kind).toBe("blocked");

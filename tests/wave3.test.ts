@@ -11,7 +11,7 @@ const U="0x"+"1".repeat(40), A="0x"+"2".repeat(40), V="0x"+"6".repeat(40);
 function session(id: string) {
   const map=new Map<string,string>();
   const storage: StorageLike={getItem:k=>map.get(k)??null,setItem:(k,v)=>{map.set(k,v);},removeItem:k=>{map.delete(k);}};
-  return new PlaySession(data,data.byId.get(id)!,new ProgressStore(storage,()=>data.totalXp),new SimulationStore(storage));
+  return new PlaySession(data,data.byId.get(id)!,new ProgressStore(storage,() => ({ challengeXp: new Map(data.challenges.map(c => [c.id, c.xp])), badgeIds: new Set(data.badges.map(b => b.id)) })),new SimulationStore(storage));
 }
 function solve13(s: PlaySession, amount="1050000000", shares="1000000000") {
   s.doRead("balanceOf",A,{account:U});
@@ -159,7 +159,7 @@ describe("Wave 3 integration",()=>{
   it("既存2050 XPの進捗へ800 XPを加算・保存復元し、二重付与しない",()=>{
     const map=new Map<string,string>();
     const storage: StorageLike={getItem:k=>map.get(k)??null,setItem:(k,v)=>{map.set(k,v);},removeItem:k=>{map.delete(k);}};
-    const progress=new ProgressStore(storage,()=>data.totalXp),sim=new SimulationStore(storage);
+    const progress=new ProgressStore(storage,() => ({ challengeXp: new Map(data.challenges.map(c => [c.id, c.xp])), badgeIds: new Set(data.badges.map(b => b.id)) })),sim=new SimulationStore(storage);
     let old=progress.load().state;
     for(const def of data.challenges.filter(d=>Number(d.id)<=12)) old=progress.markCleared(old,def.id,def.xp,[]).state;
     progress.save(old); expect(old.totalXp).toBe(2050);

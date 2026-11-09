@@ -320,12 +320,64 @@ export function serializeState(state: SimulationState): SerializedSimulationStat
   };
 }
 
-export function deserializeState(data: SerializedSimulationState): SimulationState {
-  if (data.schemaVersion !== 1 && data.schemaVersion !== STATE_SCHEMA_VERSION) {
-    throw new Error(`Unsupported simulation state schemaVersion: ${String(data.schemaVersion)}`);
+// BigInt変換・ネストしたレコードのコピーより前に、未検証の保存JSONを検査する。
+const MAX_SAVED_LOG_ENTRIES = 10_000;
+const unsafeKeys = new Set(["__proto__", "constructor", "prototype"]);
+function record(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    && Object.keys(value).every(key => !unsafeKeys.has(key));
+}
+function uint(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+function decimal(value: unknown): value is string {
+  return typeof value === "string" && /^-?\d+$/.test(value);
+}
+function stringRecord(value: unknown): boolean {
+  return record(value) && Object.values(value).every(v => typeof v === "string");
+}
+function validLog(value: unknown, type: "write" | "read"): boolean {
+  if (!record(value) || value.type !== type || !uint(value.attemptId) || !uint(value.sequence)
+    || !["id", "functionName", "contract", "from", "timestamp"].every(k => typeof value[k] === "string")
+    || !stringRecord(value.args)) return false;
+  if (type === "read") return typeof value.returnValueRaw === "string" && typeof value.returnValueDisplay === "string";
+  return typeof value.pseudoHash === "string"
+    && ["blockNumber", "nonce", "gasUsed"].every(k => uint(value[k]))
+    && typeof value.gasPriceGwei === "number" && Number.isFinite(value.gasPriceGwei) && value.gasPriceGwei >= 0
+    && decimal(value.gasFeeWei)
+    && ((value.status === 1 && value.outcome === "success") || (value.status === 0 && value.outcome === "revert"))
+    && (value.revertReason === undefined || typeof value.revertReason === "string")
+    && Array.isArray(value.stateDiff) && value.stateDiff.every(d => record(d)
+      && ["balance", "allowance", "eth"].includes(d.kind as string)
+      && decimal(d.beforeRaw) && decimal(d.afterRaw)
+      && ["token", "account", "spender"].every(k => d[k] === undefined || typeof d[k] === "string"));
+}
+function validateSerializedState(data: unknown, contracts?: readonly ContractInfo[]): asserts data is SerializedSimulationState {
+  if (!record(data) || (data.schemaVersion !== 1 && data.schemaVersion !== STATE_SCHEMA_VERSION)
+    || typeof data.challengeId !== "string" || !uint(data.attemptId) || !uint(data.blockNumber)
+    || !record(data.accounts) || Object.keys(data.accounts).length === 0
+    || !Object.entries(data.accounts).every(([address, a]) => record(a) && a.address === address
+      && typeof a.label === "string" && (a.role === "user" || a.role === "counterparty")
+      && typeof a.isCurrentUser === "boolean" && decimal(a.ethBalanceWei) && uint(a.nonce))
+    || Object.values(data.accounts).filter(a => record(a) && a.isCurrentUser === true).length !== 1
+    || !record(data.tokens) || !Object.entries(data.tokens).every(([address, t]) => record(t)
+      && t.address === address && typeof t.name === "string" && typeof t.symbol === "string"
+      && uint(t.decimals) && decimal(t.totalSupplyRaw) && record(t.balances) && Object.values(t.balances).every(decimal))
+    || !record(data.allowances) || !Object.values(data.allowances).every(decimal)
+    || (data.flags !== undefined && (!record(data.flags) || !Object.values(data.flags).every(v => typeof v === "boolean")))
+    || (data.permitNonces !== undefined && (!record(data.permitNonces) || !Object.values(data.permitNonces).every(uint)))
+    || !Array.isArray(data.txLog) || data.txLog.length > MAX_SAVED_LOG_ENTRIES || !data.txLog.every(v => validLog(v, "write"))
+    || !Array.isArray(data.callLog) || data.callLog.length > MAX_SAVED_LOG_ENTRIES || !data.callLog.every(v => validLog(v, "read"))) {
+    throw new Error("Invalid simulation state");
   }
-  if (data.flags !== undefined && (typeof data.flags !== "object" || data.flags === null || Array.isArray(data.flags) || !Object.values(data.flags).every(v => typeof v === "boolean"))) throw new Error("Invalid state flags");
-  if (data.permitNonces !== undefined && (typeof data.permitNonces !== "object" || data.permitNonces === null || Array.isArray(data.permitNonces) || !Object.values(data.permitNonces).every(v => Number.isSafeInteger(v) && v >= 0))) throw new Error("Invalid permit nonces");
+  if (contracts && (Object.keys(data.tokens).length !== contracts.length || !contracts.every(c => {
+    const token = (data.tokens as Record<string, unknown>)[c.address];
+    return record(token) && token.address === c.address && token.decimals === c.decimals;
+  }))) throw new Error("Saved tokens do not match challenge contracts");
+}
+
+export function deserializeState(data: unknown, contracts?: readonly ContractInfo[]): SimulationState {
+  validateSerializedState(data, contracts);
   const accounts: Record<Address, Account> = {};
   for (const [address, account] of Object.entries(data.accounts)) {
     accounts[address] = { ...account, ethBalanceWei: BigInt(account.ethBalanceWei) };

@@ -15,7 +15,7 @@ const U = "0x" + "1".repeat(40), C = "0x" + "2".repeat(40), F = "0x" + "3".repea
 function session(id: string) {
   const map = new Map<string, string>();
   const storage: StorageLike = { getItem: k => map.get(k) ?? null, setItem: (k,v) => { map.set(k,v); }, removeItem: k => { map.delete(k); } };
-  return new PlaySession(data, data.byId.get(id)!, new ProgressStore(storage, () => data.totalXp), new SimulationStore(storage));
+  return new PlaySession(data, data.byId.get(id)!, new ProgressStore(storage, () => ({ challengeXp: new Map(data.challenges.map(c => [c.id, c.xp])), badgeIds: new Set(data.badges.map(b => b.id)) })), new SimulationStore(storage));
 }
 function solve11(s: PlaySession) {
   s.doRead("allowance", C, { owner: F, spender: U });
@@ -196,7 +196,7 @@ describe("Wave 2 integration", () => {
   it("新課題650 XPを同じ進捗に加算でき、保存復元しても二重付与しない", () => {
     const map=new Map<string,string>();
     const storage: StorageLike={getItem:k=>map.get(k)??null,setItem:(k,v)=>{map.set(k,v);},removeItem:k=>{map.delete(k);}};
-    const progress=new ProgressStore(storage,()=>data.totalXp), sim=new SimulationStore(storage);
+    const progress=new ProgressStore(storage,() => ({ challengeXp: new Map(data.challenges.map(c => [c.id, c.xp])), badgeIds: new Set(data.badges.map(b => b.id)) })), sim=new SimulationStore(storage);
     for(const [id,solve] of [["10",solve10],["11",solve11],["12",solve12]] as const) {
       const s=new PlaySession(data,data.byId.get(id)!,progress,sim); solve(s);
       expect(s.evaluation.passed).toBe(true);

@@ -17,7 +17,7 @@ import { statusLabelText } from "./pages";
 export function renderDashboard(app: HTMLElement, data: LoadedData): void {
   app.replaceChildren();
   const storage = defaultStorage();
-  const store = new ProgressStore(storage, () => data.totalXp);
+  const store = new ProgressStore(storage, () => ({ challengeXp: new Map(data.challenges.map(c => [c.id, c.xp])), badgeIds: new Set(data.badges.map(b => b.id)) }));
   const { state, recovered } = store.load();
 
   const root = el("div", "dashboard");

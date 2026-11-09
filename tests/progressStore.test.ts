@@ -20,9 +20,9 @@ function fakeStorage(initial: Record<string, string> = {}): StorageLike & { map:
   };
 }
 
-// 試作3課題のXP合計（100+150+200=450）を動的上限として渡す
-const TOTAL_XP = 450;
-const newStore = (storage: StorageLike) => new ProgressStore(storage, () => TOTAL_XP);
+// 試作3課題の既知ID・XPとバッジIDを渡す
+const catalog = { challengeXp: new Map([["01", 100], ["02", 150], ["03", 200]]), badgeIds: new Set(["first-read"]) };
+const newStore = (storage: StorageLike) => new ProgressStore(storage, () => catalog);
 
 describe("ProgressStore", () => {
   it("未保存なら既定値で復旧する", () => {
@@ -68,12 +68,12 @@ describe("ProgressStore", () => {
     expect(state.totalXp).toBe(0);
   });
 
-  it("改変された過大なXPは全課題XP合計でクランプされる（動的上限）", () => {
+  it("改変された過大なXPはクリア済み課題から再計算される", () => {
     const storage = fakeStorage({
       [PROGRESS_STORAGE_KEY]: JSON.stringify({ ...defaultProgressState(), totalXp: 999_999 }),
     });
     const { state, warnings } = newStore(storage).load();
-    expect(state.totalXp).toBe(TOTAL_XP);
+    expect(state.totalXp).toBe(0);
     expect(warnings.length).toBeGreaterThan(0);
   });
 

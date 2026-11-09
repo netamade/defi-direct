@@ -93,7 +93,7 @@ export class PlaySession {
     this.simStore = simStore;
     this.badgeIds = new Set(data.badges.map((b) => b.id));
     this.engine = new Engine(engineConfigFromChallenge(def));
-    const restored = simStore.load(def.id);
+    const restored = simStore.load(def.id, def.contracts);
     if (restored) this.engine.state = restored;
     this.progress = progressStore.load().state;
     this.evaluation = evaluateChallenge(def, this.engine.state, this.quizAnswers(), this.engine.signatureLog);

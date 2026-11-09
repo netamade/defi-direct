@@ -2,7 +2,7 @@
 //
 // - 保存先は localStorage キー `chokukon_progress_v1`（StorageLike を注入可能にし、テスト可能にする）
 // - 読み込みは必ず検証を通し、破損時は既定値で復旧する（クラッシュさせない）
-// - totalXp は「全課題のXP合計（動的算出）」でクランプする。固定上限は持たない
+// - totalXp は既知のクリア済み課題のXPから再計算する
 // - XPは初回クリア時のみ加算する
 
 export const PROGRESS_STORAGE_KEY = "chokukon_progress_v1";
@@ -79,13 +79,20 @@ function dedupe(values: string[]): string[] {
   return [...new Set(values)];
 }
 
+export interface ProgressCatalog {
+  challengeXp: ReadonlyMap<string, number>;
+  badgeIds: ReadonlySet<string>;
+}
+
+const unsafeKeys = new Set(["__proto__", "constructor", "prototype"]);
+
 /**
  * 未検証データを ProgressState として検証する。
  * 戻り値 null は「復旧不能（既定値へフォールバック）」を表す。
  */
 export function validateProgress(
   raw: unknown,
-  maxTotalXp: number,
+  catalog: ProgressCatalog,
 ): { state: ProgressState; warnings: string[] } | null {
   if (typeof raw !== "object" || raw === null) return null;
   const data = raw as Record<string, unknown>;
@@ -98,10 +105,21 @@ export function validateProgress(
   if (typeof data["lastPlayedAt"] !== "string") return null;
 
   const warnings: string[] = [];
+  const knownChallenge = (id: string) => !unsafeKeys.has(id) && catalog.challengeXp.has(id);
+  const clearedChallengeIds = dedupe(data["clearedChallengeIds"]).filter(id => {
+    if (knownChallenge(id)) return true;
+    warnings.push(`clearedChallengeIds.${id} を除外しました`);
+    return false;
+  });
+  const badges = dedupe(data["badges"]).filter(id => {
+    if (!unsafeKeys.has(id) && catalog.badgeIds.has(id)) return true;
+    warnings.push(`badges.${id} を除外しました`);
+    return false;
+  });
 
   const challengeStatus: Record<string, ChallengeStatus> = {};
   for (const [id, status] of Object.entries(data["challengeStatus"] as Record<string, unknown>)) {
-    if (typeof status === "string" && (CHALLENGE_STATUSES as readonly string[]).includes(status)) {
+    if (knownChallenge(id) && typeof status === "string" && (CHALLENGE_STATUSES as readonly string[]).includes(status)) {
       challengeStatus[id] = status as ChallengeStatus;
     } else {
       warnings.push(`challengeStatus.${id} の値が不正なため除外しました`);
@@ -110,28 +128,28 @@ export function validateProgress(
 
   const quizAnswers: Record<string, Record<string, string>> = {};
   for (const [challengeId, answers] of Object.entries(data["quizAnswers"] as Record<string, unknown>)) {
-    if (typeof answers !== "object" || answers === null) continue;
+    if (!knownChallenge(challengeId) || typeof answers !== "object" || answers === null || Array.isArray(answers)) {
+      warnings.push(`quizAnswers.${challengeId} を除外しました`);
+      continue;
+    }
     const perQuestion: Record<string, string> = {};
     for (const [questionId, answer] of Object.entries(answers as Record<string, unknown>)) {
-      if (typeof answer === "string") perQuestion[questionId] = answer;
+      if (!unsafeKeys.has(questionId) && typeof answer === "string") perQuestion[questionId] = answer;
+      else warnings.push(`quizAnswers.${challengeId}.${questionId} を除外しました`);
     }
     quizAnswers[challengeId] = perQuestion;
   }
 
-  // XPクランプ：上限は全課題のXP合計（動的算出）。範囲外は改変の可能性があるため丸める
-  let totalXp = Math.max(0, Math.floor(data["totalXp"]));
-  if (totalXp > maxTotalXp) {
-    warnings.push(`totalXp が上限（全課題XP合計 ${maxTotalXp}）を超えていたため丸めました`);
-    totalXp = maxTotalXp;
-  }
+  const totalXp = clearedChallengeIds.reduce((sum, id) => sum + catalog.challengeXp.get(id)!, 0);
+  if (totalXp !== data["totalXp"]) warnings.push("totalXp をクリア済み課題のXP合計から再計算しました");
 
   return {
     state: {
       version: PROGRESS_VERSION,
       totalXp,
-      clearedChallengeIds: dedupe(data["clearedChallengeIds"]),
+      clearedChallengeIds,
       challengeStatus,
-      badges: dedupe(data["badges"]),
+      badges,
       quizAnswers,
       lastPlayedAt: data["lastPlayedAt"],
     },
@@ -152,20 +170,20 @@ function migrateProgress(raw: unknown): unknown {
 
 export class ProgressStore {
   private readonly storage: StorageLike;
-  private readonly maxTotalXpProvider: () => number;
+  private readonly catalogProvider: () => ProgressCatalog;
   private lastGoodJson: string | null = null;
 
   /**
    * @param storage 保存先（テストではフェイクを注入する）
-   * @param maxTotalXpProvider 全課題のXP合計を返す関数（インデックス読み込み後に値が変わりうるため関数で受ける）
+   * @param catalogProvider 既知の課題XPとバッジIDを返す関数
    */
-  constructor(storage: StorageLike, maxTotalXpProvider: () => number) {
+  constructor(storage: StorageLike, catalogProvider: () => ProgressCatalog) {
     this.storage = storage;
-    this.maxTotalXpProvider = maxTotalXpProvider;
+    this.catalogProvider = catalogProvider;
   }
 
   private maxTotalXp(): number {
-    return Math.max(0, Math.floor(this.maxTotalXpProvider()));
+    return [...this.catalogProvider().challengeXp.values()].reduce((sum, xp) => sum + xp, 0);
   }
 
   load(): LoadResult {
@@ -192,7 +210,7 @@ export class ProgressStore {
       warnings.push("進捗データのバージョンが異なるため、初期状態から始めます");
       return { state: defaultProgressState(), recovered: true, warnings };
     }
-    const validated = validateProgress(migrated, this.maxTotalXp());
+    const validated = validateProgress(migrated, this.catalogProvider());
     if (validated === null) {
       warnings.push("進捗データの形式が不正なため、初期状態から始めます");
       return { state: defaultProgressState(), recovered: true, warnings };
@@ -206,7 +224,7 @@ export class ProgressStore {
    * @returns 保存できたら true
    */
   save(state: ProgressState): boolean {
-    const validated = validateProgress(state, this.maxTotalXp());
+    const validated = validateProgress(state, this.catalogProvider());
     const toSave = validated?.state ?? state;
     let json: string;
     try {
@@ -277,7 +295,7 @@ export class ProgressStore {
     return JSON.stringify(state, null, 2);
   }
 
-  /** インポート：検証とクランプを通し、不正な場合は例外ではなく null を返す */
+  /** インポート：整合検証を通し、不正な場合は例外ではなく null を返す */
   importJson(json: string): ProgressState | null {
     let parsed: unknown;
     try {
@@ -287,7 +305,7 @@ export class ProgressStore {
     }
     const migrated = migrateProgress(parsed);
     if (migrated === null) return null;
-    return validateProgress(migrated, this.maxTotalXp())?.state ?? null;
+    return validateProgress(migrated, this.catalogProvider())?.state ?? null;
   }
 
   /** 進捗リセット（進捗のみ初期化。シミュレーション状態には触れない） */
