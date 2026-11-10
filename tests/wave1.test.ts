@@ -45,7 +45,7 @@ type SharedStorage = ReturnType<typeof fakeStorage>;
 
 function newSession(storage: SharedStorage, id: string): PlaySession {
   const def = data.byId.get(id) as ChallengeDefinition;
-  const progressStore = new ProgressStore(storage, () => data.totalXp);
+  const progressStore = new ProgressStore(storage, () => ({ challengeXp: new Map(data.challenges.map(c => [c.id, c.xp])), badgeIds: new Set(data.badges.map(b => b.id)) }));
   const simStore = new SimulationStore(storage);
   return new PlaySession(data, def, progressStore, simStore);
 }

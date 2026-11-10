@@ -21,7 +21,7 @@ export function statusLabelText(status: ChallengeStatus, cleared: boolean): stri
 }
 
 function loadProgress(data: LoadedData) {
-  const store = new ProgressStore(defaultStorage(), () => data.totalXp);
+  const store = new ProgressStore(defaultStorage(), () => ({ challengeXp: new Map(data.challenges.map(c => [c.id, c.xp])), badgeIds: new Set(data.badges.map(b => b.id)) }));
   return store.load().state;
 }
 

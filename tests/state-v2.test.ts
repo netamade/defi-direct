@@ -11,7 +11,7 @@ describe("Wave 3 state v2 compatibility",()=>{
     expect(deserializeState(old)).toEqual(s);
     const map=new Map([[simStorageKey("01"),JSON.stringify(old)]]);
     const store=new SimulationStore({getItem:k=>map.get(k)??null,setItem:(k,v)=>{map.set(k,v);},removeItem:k=>{map.delete(k);}});
-    expect(store.load("01")).toEqual(s); expect(store.save(s)).toBe(true);
+    expect(store.load("01", [])).toEqual(s); expect(store.save(s)).toBe(true);
     expect(JSON.parse(map.get(simStorageKey("01"))!).schemaVersion).toBe(2);
   });
   it("initial fields and v2 serialization round-trip without sharing mutable maps",()=>{

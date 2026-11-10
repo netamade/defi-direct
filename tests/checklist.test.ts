@@ -21,7 +21,7 @@ function storage(): StorageLike {
   return { getItem: k => map.get(k) ?? null, setItem: (k, v) => { map.set(k, v); }, removeItem: k => { map.delete(k); } };
 }
 function session(id = "11", store = storage(), def = data.byId.get(id)!): PlaySession {
-  return new PlaySession(data, def, new ProgressStore(store, () => data.totalXp), new SimulationStore(store));
+  return new PlaySession(data, def, new ProgressStore(store, () => ({ challengeXp: new Map(data.challenges.map(c => [c.id, c.xp])), badgeIds: new Set(data.badges.map(b => b.id)) })), new SimulationStore(store));
 }
 const done = (s: PlaySession) => s.checklist().map(item => item.done);
 const withdrawFromFriend = (s: PlaySession, amountRaw: string) => s.executeWrite("transferFrom", C, { from: F, to: U, amountRaw });

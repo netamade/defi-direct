@@ -6,6 +6,7 @@ import {
   deserializeState,
   serializeState,
   type SimulationState,
+  type ContractInfo,
 } from "../engine/state";
 import type { StorageLike } from "./progressStore";
 
@@ -32,7 +33,7 @@ export class SimulationStore {
   }
 
   /** 保存済みの状態を復元する。未保存・破損・別課題のデータなら null */
-  load(challengeId: string): SimulationState | null {
+  load(challengeId: string, contracts: readonly ContractInfo[]): SimulationState | null {
     let text: string | null;
     try {
       text = this.storage.getItem(simStorageKey(challengeId));
@@ -41,7 +42,7 @@ export class SimulationStore {
     }
     if (text === null) return null;
     try {
-      const state = deserializeState(JSON.parse(text));
+      const state = deserializeState(JSON.parse(text), contracts);
       return state.challengeId === challengeId ? state : null;
     } catch {
       return null;

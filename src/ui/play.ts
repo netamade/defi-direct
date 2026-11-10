@@ -26,7 +26,7 @@ export function renderPlay(app: HTMLElement, data: LoadedData, challengeId: stri
   }
 
   const storage = defaultStorage();
-  const progressStore = new ProgressStore(storage, () => data.totalXp);
+  const progressStore = new ProgressStore(storage, () => ({ challengeXp: new Map(data.challenges.map(c => [c.id, c.xp])), badgeIds: new Set(data.badges.map(b => b.id)) }));
   const simStore = new SimulationStore(storage);
   const session = new PlaySession(data, def, progressStore, simStore);
   const viewState: PanelViewState = { hintsShown: 0 };

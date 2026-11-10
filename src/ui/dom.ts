@@ -43,7 +43,7 @@ export function updateHeaderProgress(data: LoadedData): void {
   const header = document.getElementById("header-progress");
   if (!header) return;
   try {
-    const store = new ProgressStore(defaultStorage(), () => data.totalXp);
+    const store = new ProgressStore(defaultStorage(), () => ({ challengeXp: new Map(data.challenges.map(c => [c.id, c.xp])), badgeIds: new Set(data.badges.map(b => b.id)) }));
     const { state } = store.load();
     const level = levelForXp(state.totalXp).current;
     header.textContent = `Lv.${level.level} ${level.name} ・ ${state.totalXp} XP ・ クリア ${state.clearedChallengeIds.length}/${data.challenges.length} 課題`;
