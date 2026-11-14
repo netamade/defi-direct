@@ -64,19 +64,25 @@ export function normalizeNumericAnswer(input: string, unit?: string): string {
 
 // --- forbiddenAction のマッチング ---
 
-/** match.condition（例: "amount == maxUint256"）を args に対して評価する */
+/**
+ * match.condition の raw 値を BigInt で比較する。
+ * 課題03・08は必要なapprove量（10 / 20 USDC）を条件の上限とする。
+ * 必要額ちょうどは許可し、それを超える額は警告と履歴ゲートの両方で検出する。
+ */
 export function forbiddenConditionMatches(condition: string | undefined, args: Record<string, string>): boolean {
   if (condition === undefined) return true;
   const match = FORBIDDEN_CONDITION_PATTERN.exec(condition.trim());
   if (!match) return false; // 解釈できない条件はローダーで弾く前提。ここでは一致扱いにしない
   const field = match[1] as string;
-  const expectedText = match[2] as string;
+  const operator = match[2] as string;
+  const expectedText = match[3] as string;
   const expected = expectedText === "maxUint256" ? MAX_UINT256 : BigInt(expectedText);
   const candidates = [args[field], args[`${field}Raw`], args["amountRaw"], args["amountInRaw"]];
   for (const candidate of candidates) {
     if (candidate === undefined) continue;
     try {
-      if (BigInt(candidate) === expected) return true;
+      const amount = BigInt(candidate);
+      if (operator === ">" ? amount > expected : amount === expected) return true;
     } catch {
       // 数値でない引数は一致しない
     }
