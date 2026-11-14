@@ -4,7 +4,7 @@ import { buildLoadedData } from "../src/data/loader";
 import type { ChallengeDefinition, PassCondition } from "../src/data/types";
 import { Engine, engineConfigFromChallenge } from "../src/engine/executor";
 import { MAX_UINT256 } from "../src/engine/units";
-import { evaluateChallenge, normalizeNumericAnswer } from "../src/scoring/evaluator";
+import { evaluateChallenge, forbiddenConditionMatches, normalizeNumericAnswer } from "../src/scoring/evaluator";
 
 function readJson(path: string): unknown {
   return JSON.parse(readFileSync(new URL(path, import.meta.url), "utf-8"));
@@ -328,5 +328,17 @@ describe("クイズ数値回答の正規化（設計書 4.5）", () => {
     expect(evaluateChallenge(def, engine.state, { "q-num": "1000 USDC" }).passed).toBe(true);
     expect(evaluateChallenge(def, engine.state, { "q-num": "1000.01" }).passed).toBe(false);
     expect(evaluateChallenge(def, engine.state, { "q-num": "999" }).passed).toBe(false);
+  });
+});
+
+
+describe("禁止条件の数値比較", () => {
+  it("既存の完全一致と新しい上限比較を区別する", () => {
+    expect(forbiddenConditionMatches("amount == 10", { amountRaw: "11" })).toBe(false);
+    expect(forbiddenConditionMatches("amount == 10", { amountRaw: "10" })).toBe(true);
+    expect(forbiddenConditionMatches("amount > 10", { amountRaw: "10" })).toBe(false);
+    expect(forbiddenConditionMatches("amount > 10", { amountRaw: "11" })).toBe(true);
+    expect(forbiddenConditionMatches("amount > 10", { amountRaw: "invalid" })).toBe(false);
+    expect(forbiddenConditionMatches("amount > 10", {})).toBe(false);
   });
 });

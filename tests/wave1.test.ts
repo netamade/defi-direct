@@ -384,3 +384,36 @@ describe("課題09 revert総復習：失敗を読み解く", () => {
     expect(session.evaluation.passed).toBe(false);
   });
 });
+
+
+describe.each([["03", "10000000"], ["08", "20000000"]])("課題%sの過大承認", (id, required) => {
+  it.each([-1n, 0n, 1n])("必要額との差分 %s raw の境界判定", (delta) => {
+    const session = newSession(fakeStorage(), id);
+    const args = { spender: DEX, amountRaw: (BigInt(required) + delta).toString() };
+    expect(session.requestWrite("approve", USDC, args).kind).toBe(delta > 0n ? "warn" : "confirm");
+    session.executeWrite("approve", USDC, args);
+    expect(session.evaluation.gate.blocked).toBe(delta > 0n);
+    session.reset();
+    session.answerQuiz("q08-estimate", "19");
+    session.executeWrite("approve", USDC, { spender: DEX, amountRaw: required });
+    session.executeWrite("swapExactUSDCForTKN", DEX, { amountInRaw: required });
+    expect(session.evaluation.passed).toBe(true);
+    expect(session.engine.getAllowance(USDC, USER, DEX)).toBe(0n);
+  });
+
+  it.each([MAX_UINT256 - 1n, MAX_UINT256, MAX_UINT256 + 1n, 10n ** 100n])("%s raw は警告し、正規の手順でも合格させない", (amount) => {
+    const session = newSession(fakeStorage(), id);
+    session.answerQuiz("q08-estimate", "19");
+    session.executeWrite("approve", USDC, { spender: DEX, amountRaw: required });
+    const args = { spender: DEX, amountRaw: amount.toString() };
+    // 正規approveの後に上書きすると、部分列の条件を満たしたまま過大承認が残る。
+    const request = session.requestWrite("approve", USDC, args);
+    session.executeWrite("approve", USDC, args);
+    session.executeWrite("swapExactUSDCForTKN", DEX, { amountInRaw: required });
+    expect(session.engine.getAllowance(USDC, USER, DEX)).toBe(amount === MAX_UINT256 ? amount : amount - BigInt(required));
+    expect.soft(request.kind).toBe("warn");
+    expect.soft(session.evaluation.gate.blocked).toBe(true);
+    expect.soft(session.evaluation.passed).toBe(false);
+    expect.soft(session.progress.clearedChallengeIds).not.toContain(id);
+  });
+});

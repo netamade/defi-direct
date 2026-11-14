@@ -59,7 +59,7 @@ const PASS_KEYS: Record<string, string[]> = {
 const SEQUENCE_STEP_KEYS = ["functionName", "kind", "contract", "args", "returnRaw", "status"];
 
 /** forbiddenAction.match.condition の解釈可能形式（scoring 側と共通の文法） */
-export const FORBIDDEN_CONDITION_PATTERN = /^([A-Za-z][A-Za-z0-9]*)\s*==\s*(maxUint256|\d+)$/;
+export const FORBIDDEN_CONDITION_PATTERN = /^([A-Za-z][A-Za-z0-9]*)\s*(==|>)\s*(maxUint256|\d+)$/;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
