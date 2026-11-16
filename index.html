@@ -1,12 +1,20 @@
 <!doctype html>
 <html lang="ja">
   <head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-06VZRGX3HT"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'G-06VZRGX3HT');
+</script>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!-- CSP: 設計書 0.5.3 の方針。外部オリジンへの読み込み・接続を一切許可しない。 -->
+    <!-- CSP: 設計書 0.5.3 の方針（外部オリジンへの読み込み・接続を許可しない）を基本とし、GA4 計測に必要な googletagmanager / google-analytics のみ例外として許可する。 -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'"
+      content="default-src 'self'; script-src 'self' https://www.googletagmanager.com 'sha256-eoYzLnJkkJjb9j2i49CwbIpKYhQhsAO/0sLSvL8C7K0='; style-src 'self'; connect-src 'self' https://www.google-analytics.com https://region1.google-analytics.com https://www.googletagmanager.com; img-src 'self' data: https://www.google-analytics.com; object-src 'none'; base-uri 'self'"
     />
     <title>直コン練習サイト（疑似シミュレーター）| 『DeFiの裏口』連動</title>
     <meta
