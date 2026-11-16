@@ -46,6 +46,10 @@ export function renderChallengeCard(def: ChallengeDefinition, status: ChallengeS
 
 // --- S-01 トップ／はじめに ---
 
+// 連動書籍『DeFiの裏口』の販売リンク（Amazonアフィリエイトリンク）
+const BOOK_URL =
+  "https://www.amazon.co.jp/dp/B0HR1TZXHC/ref=cm_sw_r_as_gl_api_gl_i_RMDVKRF68VR8C7EKG9BX?linkCode=ml1&tag=koiketto-22&linkId=37aad87636b3beb14c6c88fc243a4c69";
+
 export function renderTop(app: HTMLElement, data: LoadedData): void {
   app.replaceChildren();
   const progress = loadProgress(data);
@@ -60,6 +64,21 @@ export function renderTop(app: HTMLElement, data: LoadedData): void {
     ),
   );
   root.append(hero);
+
+  const book = el("section", "card book-promo");
+  book.append(text("h2", "このサイトの詳細は、連動書籍『DeFiの裏口』で"));
+  book.append(
+    text(
+      "p",
+      "このサイトは、書籍『DeFiの裏口』の連動練習サイトです。各課題の背景や詳しい手順・解説は本書に収録されています。本書の付録Eは、このサイトの操作マニュアルになっています。",
+    ),
+  );
+  const bookLink = el("a", "btn btn-primary", ["購入はこちら"]);
+  bookLink.href = BOOK_URL;
+  bookLink.target = "_blank";
+  bookLink.rel = "noopener";
+  book.append(bookLink);
+  root.append(book);
 
   const steps = el("section", "card");
   steps.append(text("h2", "始め方（3ステップ）"));

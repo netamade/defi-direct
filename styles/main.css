@@ -248,6 +248,15 @@ select:focus-visible {
   font-size: 1.8rem;
 }
 
+.book-promo {
+  border: 2px solid var(--color-accent);
+  background: var(--color-accent-soft);
+}
+
+.book-promo h2 {
+  margin-top: 0;
+}
+
 .howto-steps li,
 .promise-list li {
   margin: 6px 0;
